@@ -1,6 +1,194 @@
 # Supabase 配置指南
 
-## 第一步：创建Supabase项目（5分钟）
+## ⚠️ 紧急：必须执行的SQL（修复上传问题）
+
+**代码已修复，现在需要在Supabase中执行以下SQL来启用访问统计功能。**
+
+### 快速执行步骤
+
+1. 打开: https://supabase.com/dashboard/project/pqchakbrsatzxepypkyo
+2. 左侧菜单 → **SQL Editor** → **New Query**
+3. 复制并执行以下SQL:
+
+```sql
+-- ============================================
+-- 页面访问统计表 (page_views)
+-- ============================================
+CREATE TABLE IF NOT EXISTS page_views (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    page_name TEXT NOT NULL,
+    visited_at TIMESTAMPTZ DEFAULT NOW(),
+    user_agent TEXT,
+    referrer TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_page_views_page_name ON page_views(page_name);
+CREATE INDEX IF NOT EXISTS idx_page_views_visited_at ON page_views(visited_at DESC);
+
+ALTER TABLE page_views ENABLE ROW LEVEL SECURITY;
+
+-- 允许所有人插入访问记录
+DROP POLICY IF EXISTS "Anyone can insert page views" ON page_views;
+CREATE POLICY "Anyone can insert page views" 
+ON page_views FOR INSERT 
+TO anon, authenticated 
+WITH CHECK (true);
+
+-- 允许authenticated用户读取（管理员查看统计）
+DROP POLICY IF EXISTS "Authenticated users can view page views" ON page_views;
+CREATE POLICY "Authenticated users can view page views" 
+ON page_views FOR SELECT 
+TO authenticated 
+USING (true);
+
+-- 创建按页面名称统计的函数
+CREATE OR REPLACE FUNCTION count_page_views_by_name()
+RETURNS TABLE (
+    page_name TEXT,
+    count BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT pv.page_name, COUNT(*)::BIGINT as count
+    FROM page_views pv
+    GROUP BY pv.page_name
+    ORDER BY count DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+点击 **Run** 执行。
+
+---
+
+## 🔍 验证权限配置（重要！）
+
+**这是其他人能上传作品的关键！**
+
+在SQL Editor中执行:
+
+```sql
+-- 检查所有表的策略
+SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check
+FROM pg_policies 
+WHERE tablename IN ('works', 'contestants', 'judges', 'assignments', 'scores', 'configs');
+```
+
+**必须看到以下策略:**
+
+| 表名 | 策略名 | 操作 | 角色 |
+|------|--------|------|------|
+| works | Anyone can insert works | INSERT | anon |
+| works | Anyone can view works | SELECT | anon |
+| contestants | Anyone can insert contestants | INSERT | anon |
+| contestants | Anyone can view contestants | SELECT | anon |
+
+**如果缺少任何策略，立即执行:**
+
+```sql
+-- works表权限（选手上传作品的必需权限）
+DROP POLICY IF EXISTS "Anyone can insert works" ON works;
+CREATE POLICY "Anyone can insert works" 
+ON works FOR INSERT TO anon WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Anyone can view works" ON works;
+CREATE POLICY "Anyone can view works" 
+ON works FOR SELECT TO anon USING (true);
+
+-- contestants表权限（自动注册选手）
+DROP POLICY IF EXISTS "Anyone can insert contestants" ON contestants;
+CREATE POLICY "Anyone can insert contestants" 
+ON contestants FOR INSERT TO anon WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Anyone can view contestants" ON contestants;
+CREATE POLICY "Anyone can view contestants" 
+ON contestants FOR SELECT TO anon USING (true);
+```
+
+---
+
+## 🎯 测试步骤
+
+### 1. 等待GitHub Pages部署完成
+
+访问: https://github.com/xbfbruce/aigc-contest/actions  
+确认最新commit显示 ✅
+
+### 2. 让测试用户访问网站
+
+```
+https://xbfbruce.github.io/aigc-contest/
+```
+
+### 3. 测试上传作品
+
+1. 选择"选手端"
+2. 填写姓名、学校
+3. 选择作品分类
+4. 填写作品标题和描述
+5. 上传图片文件
+6. 点击"提交作品"
+
+### 4. 验证结果
+
+- ✅ 应该看到"作品提交成功"提示
+- ✅ 打开浏览器控制台(F12),应该看到:
+  ```
+  📝 注册新选手: 张三 XX学校
+  ✅ 选手注册成功, ID: xxx-xxx-xxx
+  📤 提交作品到Supabase: {...}
+  ✅ 作品提交成功: {...}
+  ```
+
+### 5. 在管理端查看
+
+1. 访问管理端: `https://xbfbruce.github.io/aigc-contest/admin.html`
+2. 登录(admin/admin123)
+3. 点击"作品管理"标签
+4. 应该能看到新提交的作品
+
+### 6. 测试访问统计
+
+1. 在管理端点击"访问统计"标签
+2. 应该能看到:
+   - 总访问量
+   - 今日访问
+   - 各页面访问分布
+   - 最近访问记录
+
+---
+
+## 🔧 常见问题
+
+### Q: 提交时显示错误
+
+**检查浏览器控制台(F12)**:
+
+- 如果看到 `permission denied` → RLS策略未配置,执行上面的SQL
+- 如果看到 `Network Error` → 检查网络连接
+- 如果看到 `relation does not exist` → 表未创建,需要执行完整的schema.sql
+
+### Q: 其他人还是无法上传
+
+1. 让他们清除浏览器缓存(Ctrl+Shift+Delete)
+2. 使用无痕模式测试
+3. 检查控制台是否有错误信息
+
+### Q: 访问统计显示0
+
+1. 确认已在Supabase中创建了page_views表
+2. 刷新几次页面后再查看
+3. 检查控制台是否有 "✅ 访问已记录" 日志
+
+---
+
+## 📞 需要帮助?
+
+把浏览器控制台的错误信息截图发给我,我会帮你快速解决!
+
+---
+
+## 完整配置流程（首次设置）
 
 ### 1. 注册/登录
 访问 https://supabase.com 并注册账号（可以使用GitHub快捷登录）
