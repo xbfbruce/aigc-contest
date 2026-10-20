@@ -1,3 +1,6 @@
+// 当前登录的选手信息(使用var避免暂时性死区问题)
+var currentContestant = null;
+
 // 获取当前配置
 function getCurrentSpecs() {
     return JSON.parse(localStorage.getItem('submissionSpecs') || '{}');
@@ -555,8 +558,6 @@ document.head.appendChild(style);
 // ============================================
 // 选手登录和验证系统
 // ============================================
-
-let currentContestant = null; // 当前登录的选手信息
 
 // 加载预录入选手名单
 async function loadContestantList() {
