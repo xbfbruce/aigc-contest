@@ -641,18 +641,37 @@ async function contestantLogin(loginInput) {
 // 检查选手是否已提交作品
 async function checkIfSubmitted(name) {
     try {
+        console.log('🔍 检查选手是否已提交:', name);
+        
         // 从Supabase查询
-        const works = await storage.listWorks({ contestant_name: name });
-        if (works && works.length > 0) {
-            return works[0]; // 返回第一个作品
+        const allWorks = await storage.listWorks();
+        console.log(`📊 总作品数: ${allWorks.length}`);
+        
+        // 查找该选手的作品
+        const contestantWorks = allWorks.filter(w => {
+            const authorName = w.contestants?.name || w.author || w.name;
+            return authorName === name;
+        });
+        
+        console.log(`📊 ${name} 的作品数: ${contestantWorks.length}`);
+        
+        if (contestantWorks && contestantWorks.length > 0) {
+            console.log('✅ 找到已提交作品:', contestantWorks[0].title);
+            return contestantWorks[0]; // 返回第一个作品
         }
         
         // Fallback: 从localStorage查询
         const submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
         const submission = submissions.find(s => s.name === name);
-        return submission || null;
+        if (submission) {
+            console.log('✅ 在localStorage中找到提交记录:', submission.title);
+            return submission;
+        }
+        
+        console.log(' 未找到提交记录');
+        return null;
     } catch (error) {
-        console.error('检查提交状态失败:', error);
+        console.error('❌ 检查提交状态失败:', error);
         return null;
     }
 }

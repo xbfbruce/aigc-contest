@@ -624,6 +624,9 @@ async function deleteSingleWork(workId) {
         await storage.deleteWork(workId);
         console.log('✅ 作品已从云端删除');
         
+        // 等待一下确保删除生效
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         // 同时清理localStorage中的相关数据(兼容性)
         let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
         submissions = submissions.filter(s => s.id !== workId);
@@ -638,7 +641,9 @@ async function deleteSingleWork(workId) {
         localStorage.setItem('assignments', JSON.stringify(assignments));
         
         alert('作品已删除');
-        loadWorksTable(); // 刷新列表
+        
+        // 强制刷新页面以重新加载数据
+        window.location.reload();
         
     } catch (error) {
         console.error('❌ 删除失败:', error);
@@ -1212,8 +1217,14 @@ async function refreshAnalytics() {
         console.log('📊 加载访问统计数据...');
         
         // 获取页面访问统计
-        const stats = await storage.getPageViewStats();
-        console.log('✅ 统计数据:', stats);
+        let stats;
+        try {
+            stats = await storage.getPageViewStats();
+            console.log('✅ 统计数据:', stats);
+        } catch (pageViewError) {
+            console.warn('⚠️ 无法获取页面访问统计(可能page_views表不存在):', pageViewError.message);
+            stats = { total: 0, today: 0, byPage: [] };
+        }
         
         // 更新总览卡片
         document.getElementById('totalViews').textContent = stats.total || 0;
