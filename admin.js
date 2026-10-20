@@ -480,38 +480,51 @@ function logout() {
 // ========== 作品管理功能 ==========
 
 // 加载作品列表
-function loadWorksTable() {
-    const works = JSON.parse(localStorage.getItem('works') || '[]');
-    const tbody = document.getElementById('worksTable');
-    
-    // 更新统计
-    const total = works.length;
-    const pending = works.filter(w => w.status === '待审核').length;
-    const approved = works.filter(w => w.status === '已通过').length;
-    const rejected = works.filter(w => w.status === '已驳回').length;
-    document.getElementById('worksStats').textContent = `总计: ${total} | 待审核: ${pending} | 已通过: ${approved} | 已驳回: ${rejected}`;
-    
-    if (works.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无作品</td></tr>';
-        return;
-    }
-    
-    tbody.innerHTML = works.map(work => {
-        const statusClass = work.status === '已通过' ? 'status-scored' : 
-                           work.status === '已驳回' ? 'status-pending' : 'status-pending';
+async function loadWorksTable() {
+    try {
+        console.log('📊 加载作品列表...');
         
-        return `
-            <tr>
-                <td><input type="checkbox" class="work-checkbox" value="${work.id}" data-title="${work.title}"></td>
-                <td>${work.submitTime || '-'}</td>
-                <td>${work.title}</td>
-                <td>${getCategoryName(work.category)}</td>
-                <td>${work.author}</td>
-                <td>${work.school}</td>
-                <td><span class="work-status ${statusClass}">${work.status}</span></td>
-                <td>
-                    <button class="btn-secondary btn-sm" onclick="viewWorkDetail('${work.id}')">查看</button>
-                    ${work.status === '待审核' ? `
+        // 从Supabase读取作品(包含选手信息)
+        const works = await storage.listWorks();
+        console.log(`✅ 加载了 ${works.length} 个作品`);
+        
+        const tbody = document.getElementById('worksTable');
+        
+        // 更新统计
+        const total = works.length;
+        const pending = works.filter(w => w.status === 'pending').length;
+        const reviewing = works.filter(w => w.status === 'reviewing').length;
+        const scored = works.filter(w => w.status === 'scored').length;
+        document.getElementById('worksStats').textContent = `总计: ${total} | 待审核: ${pending} | 评审中: ${reviewing} | 已评分: ${scored}`;
+        
+        if (works.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无作品</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = works.map(work => {
+            const statusClass = work.status === 'scored' ? 'status-scored' : 
+                               work.status === 'reviewing' ? 'status-pending' : 'status-pending';
+            const statusText = work.status === 'pending' ? '待审核' : 
+                              work.status === 'reviewing' ? '评审中' : '已评分';
+            
+            // 从关联数据获取选手信息
+            const contestantName = work.contestants?.name || work.author || '未知';
+            const contestantSchool = work.contestants?.school || work.school || '未知';
+            const submitTime = work.submit_time ? new Date(work.submit_time).toLocaleString('zh-CN') : '-';
+            
+            return `
+                <tr>
+                    <td><input type="checkbox" class="work-checkbox" value="${work.id}" data-title="${work.title}"></td>
+                    <td>${submitTime}</td>
+                    <td>${work.title}</td>
+                    <td>${getCategoryName(work.category)}</td>
+                    <td>${contestantName}</td>
+                    <td>${contestantSchool}</td>
+                    <td><span class="work-status ${statusClass}">${statusText}</span></td>
+                    <td>
+                        <button class="btn-secondary btn-sm" onclick="viewWorkDetail('${work.id}')">查看</button>
+                    ${work.status === 'pending' ? `
                         <button class="btn-primary btn-sm" onclick="approveWork('${work.id}')" style="margin-left: 0.5rem;">通过</button>
                         <button class="btn-secondary btn-sm" onclick="rejectWork('${work.id}')" style="margin-left: 0.5rem;">驳回</button>
                     ` : ''}
@@ -520,6 +533,12 @@ function loadWorksTable() {
             </tr>
         `;
     }).join('');
+    
+    } catch (error) {
+        console.error('❌ 加载作品列表失败:', error);
+        const tbody = document.getElementById('worksTable');
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">加载失败: ' + error.message + '</td></tr>';
+    }
 }
 
 // 切换全选
@@ -585,40 +604,46 @@ function batchDeleteWorks() {
 }
 
 // 删除单个作品
-function deleteSingleWork(workId) {
-    const works = JSON.parse(localStorage.getItem('works') || '[]');
-    const work = works.find(w => w.id === workId);
-    
-    if (!work) {
-        alert('作品不存在');
-        return;
+async function deleteSingleWork(workId) {
+    try {
+        console.log('🗑️ 删除作品:', workId);
+        
+        // 先从Supabase获取作品信息
+        const work = await storage.getWork(workId);
+        
+        if (!work) {
+            alert('作品不存在');
+            return;
+        }
+        
+        if (!confirm(`确认删除作品"${work.title}"？\n\n此操作不可恢复！`)) {
+            return;
+        }
+        
+        // 从Supabase删除
+        await storage.deleteWork(workId);
+        console.log('✅ 作品已从云端删除');
+        
+        // 同时清理localStorage中的相关数据(兼容性)
+        let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+        submissions = submissions.filter(s => s.id !== workId);
+        localStorage.setItem('submissions', JSON.stringify(submissions));
+        
+        let judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+        judgeScores = judgeScores.filter(s => s.work_id !== workId && s.workId !== workId);
+        localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
+        
+        let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
+        assignments = assignments.filter(a => a.work_id !== workId && a.workId !== workId);
+        localStorage.setItem('assignments', JSON.stringify(assignments));
+        
+        alert('作品已删除');
+        loadWorksTable(); // 刷新列表
+        
+    } catch (error) {
+        console.error('❌ 删除失败:', error);
+        alert('删除失败: ' + error.message);
     }
-    
-    if (!confirm(`确认删除作品"${work.title}"？\n\n此操作不可恢复！`)) {
-        return;
-    }
-    
-    // 删除作品
-    let updatedWorks = works.filter(w => w.id !== workId);
-    localStorage.setItem('works', JSON.stringify(updatedWorks));
-    
-    // 删除提交记录
-    let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
-    submissions = submissions.filter(s => s.id !== workId);
-    localStorage.setItem('submissions', JSON.stringify(submissions));
-    
-    // 删除评分记录
-    let judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
-    judgeScores = judgeScores.filter(s => s.workId !== workId);
-    localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
-    
-    // 删除分配关系
-    let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
-    assignments = assignments.filter(a => a.workId !== workId);
-    localStorage.setItem('assignments', JSON.stringify(assignments));
-    
-    alert('作品已删除！');
-    loadWorksTable();
 }
 
 function getCategoryName(value) {

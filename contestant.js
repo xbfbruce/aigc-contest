@@ -302,70 +302,87 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
     }
     
     const formData = new FormData(this);
-    const workId = 'work_' + Date.now();
-    
-    // 转换所有文件为base64
-    const filesWithContent = [];
-    for (const item of uploadedFiles) {
-        try {
-            const base64 = await fileToBase64(item.file);
-            filesWithContent.push({
-                name: item.file.name,
-                size: item.file.size,
-                type: item.file.type,
-                metadata: item.metadata,
-                content: base64  // 保存base64内容用于预览
-            });
-        } catch (error) {
-            console.error('文件转换失败:', error);
-            alert(`文件 ${item.file.name} 处理失败`);
-            return;
-        }
-    }
-    
-    const submission = {
-        id: workId,
-        name: formData.get('name'),
-        school: formData.get('school'),
-        category: formData.get('category'),
-        title: formData.get('workTitle'),
-        workTitle: formData.get('workTitle'),
-        description: formData.get('description'),
-        files: filesWithContent,
-        submitTime: new Date().toLocaleString('zh-CN'),
-        status: '待审核'
-    };
-    
-    // 保存到提交记录
-    let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
-    submissions.push(submission);
-    localStorage.setItem('submissions', JSON.stringify(submissions));
-    
-    // 同时保存到作品库
-    let works = JSON.parse(localStorage.getItem('works') || '[]');
-    works.push({
-        id: workId,
-        title: submission.title,
-        category: submission.category,
-        school: submission.school,
-        author: submission.name,
-        description: submission.description,
-        files: submission.files,
-        submitTime: submission.submitTime,
-        status: '待审核'
-    });
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = '提交中...';
     
     try {
-        localStorage.setItem('works', JSON.stringify(works));
-        alert('作品提交成功！等待管理员审核。');
+        // 1. 注册选手(如果不存在)
+        const name = formData.get('name');
+        const school = formData.get('school');
+        
+        let contestantId = localStorage.getItem('currentContestantId');
+        
+        if (!contestantId) {
+            console.log('📝 注册新选手:', name, school);
+            const contestant = await storage.registerContestant(name, school);
+            contestantId = contestant.id;
+            localStorage.setItem('currentContestantId', contestantId);
+            console.log('✅ 选手注册成功, ID:', contestantId);
+        }
+        
+        // 2. 处理文件 - 对于Supabase,我们存储文件元数据
+        // 注意:实际文件上传需要Storage Bucket,这里先存储元数据
+        const files = uploadedFiles.map(item => ({
+            name: item.file.name,
+            size: item.file.size,
+            type: item.file.type,
+            metadata: item.metadata
+        }));
+        
+        // 3. 准备作品数据
+        const workData = {
+            contestant_id: contestantId,
+            category: formData.get('category'),
+            title: formData.get('workTitle'),
+            description: formData.get('description'),
+            file_name: files.map(f => f.name).join(', '),
+            file_size: files.reduce((sum, f) => sum + f.size, 0),
+            file_url: 'pending_upload', // 后续可以集成Supabase Storage
+            status: 'pending'
+        };
+        
+        console.log('📤 提交作品到Supabase:', workData);
+        
+        // 4. 提交到Supabase(或localStorage作为fallback)
+        const result = await storage.submitWork(workData);
+        console.log('✅ 作品提交成功:', result);
+        
+        // 5. 同时保存到本地提交记录(用于显示历史)
+        const submission = {
+            id: result.id || ('work_' + Date.now()),
+            name: name,
+            school: school,
+            category: workData.category,
+            title: workData.title,
+            workTitle: workData.title,
+            description: workData.description,
+            files: files,
+            submitTime: new Date().toLocaleString('zh-CN'),
+            status: '待审核'
+        };
+        
+        let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+        submissions.push(submission);
+        localStorage.setItem('submissions', JSON.stringify(submissions));
+        
+        // 6. 显示成功消息
+        alert('✅ 作品提交成功！\n\n作品已保存到云端数据库。\n管理员可以在后台查看您的作品。');
+        
+        // 7. 重置表单
         this.reset();
         uploadedFiles = [];
         updateFileList();
         loadSubmissions();
         updateUploadHint();
+        
     } catch (error) {
-        console.error('保存失败:', error);
-        alert('作品太大，超出浏览器存储限制。请使用较小的文件或联系管理员。');
+        console.error('❌ 提交失败:', error);
+        alert('❌ 提交失败: ' + error.message + '\n\n请检查网络连接后重试。');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 });
 
