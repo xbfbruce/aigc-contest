@@ -199,8 +199,6 @@ async function validateImageFile(file) {
         }
     };
 }
-    };
-}
 
 function updateFileList() {
     const fileList = document.getElementById('fileList');
