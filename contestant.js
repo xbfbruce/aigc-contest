@@ -34,9 +34,9 @@ function loadAndDisplaySpecs() {
         imageList.innerHTML = `
             <li><strong>格式要求：</strong>${(specs.image.formats || ['JPG', 'PNG']).join('/')}格式</li>
             <li><strong>分辨率：</strong>≥ ${specs.image.minDPI || 300} DPI</li>
-            <li><strong>文件大小：</strong>≥ ${specs.image.minSize || 5}MB（确保高质量）</li>
+            <li><strong>文件大小：</strong>单张不超过${specs.image.maxSize || 1}MB（确保质量）</li>
             <li><strong>作品形式：</strong>可以是单张图、组图、连环画</li>
-            <li><strong>数量限制：</strong>最多上传${specs.image.maxFiles || 10}张图片</li>
+            <li><strong>数量限制：</strong>最多上传${specs.image.maxFiles || 5}张图片</li>
         `;
     } else {
         imageSection.style.display = 'none';
@@ -46,12 +46,10 @@ function loadAndDisplaySpecs() {
     const generalList = document.getElementById('generalSpecsList');
     const deadline = specs.deadline || '2026-12-31 23:59';
     const maxSubmissions = specs.maxSubmissionsPerCategory || 1;
-    const descMinLength = specs.descriptionMinLength || 50;
     
     generalList.innerHTML = `
         <li><strong>提交截止时间：</strong>${deadline}</li>
         <li><strong>每人每类可提交：</strong>${maxSubmissions} 份作品</li>
-        <li><strong>作品描述最少字数：</strong>${descMinLength} 字</li>
     `;
 }
 
@@ -77,11 +75,11 @@ function updateUploadHint() {
     } else if (category === 'image' && specs.image) {
         const formats = specs.image.formats.join(', ');
         const minDPI = specs.image.minDPI;
-        const minSize = specs.image.minSize;
-        const maxFiles = specs.image.maxFiles;
+        const maxSize = specs.image.maxSize || 1;
+        const maxFiles = specs.image.maxFiles || 5;
         
-        uploadText.textContent = `点击上传${formats}图片（可多选）`;
-        uploadHint2.textContent = `要求：分辨率≥${minDPI}DPI，文件大小≥${minSize}MB，最多${maxFiles}张`;
+        uploadText.textContent = `点击上传${formats}图片（可多选，最多${maxFiles}张）`;
+        uploadHint2.textContent = `要求：分辨率≥${minDPI}DPI，单张不超过${maxSize}MB，支持连环画等多张图片`;
         fileInput.accept = '.' + specs.image.formats.join(',.').toLowerCase();
         fileInput.multiple = true;
     } else {
@@ -167,7 +165,7 @@ async function validateVideoFile(file) {
     };
 }
 
-// 验证图片文件（只检查格式和大小）
+// 验证图片文件（检查格式和大小）
 async function validateImageFile(file) {
     const specs = getCurrentSpecs();
     const imageConfig = specs.image || {};
@@ -180,25 +178,27 @@ async function validateImageFile(file) {
         return { valid: false, error: `图片格式不正确，支持：${imageConfig.formats.join(', ')}` };
     }
     
-    // 只检查文件大小
-    const minSizeMB = imageConfig.minSize || 5;
-    if (file.size < minSizeMB * 1024 * 1024) {
+    // 检查文件大小 - 最大1MB
+    const maxSizeMB = imageConfig.maxSize || 1;
+    if (file.size > maxSizeMB * 1024 * 1024) {
         const sizeMB = (file.size / 1024 / 1024).toFixed(2);
-        return { valid: false, error: `文件太小：当前${sizeMB}MB，要求≥${minSizeMB}MB（确保高质量）` };
+        return { valid: false, error: `文件太大：当前${sizeMB}MB，单张不超过${maxSizeMB}MB` };
     }
     
     // 检查图片数量限制
-    const maxFiles = imageConfig.maxFiles || 10;
+    const maxFiles = imageConfig.maxFiles || 5;
     if (uploadedFiles.length >= maxFiles) {
         return { valid: false, error: `最多只能上传${maxFiles}张图片` };
     }
     
-    // 通过校验，返回基本元数据（不读取图片属性）
+    // 通过校验，返回基本元数据
     return { 
         valid: true, 
         metadata: {
             size: file.size
         }
+    };
+}
     };
 }
 
@@ -440,6 +440,7 @@ window.addEventListener('load', () => {
     loadAndDisplaySpecs();  // 加载并显示规格
     updateUploadHint();
     loadSubmissions();
+    loadSchoolList();  // 加载学校列表
     
     // 加载草稿
     const draft = JSON.parse(localStorage.getItem('draft') || '{}');
@@ -454,7 +455,62 @@ window.addEventListener('load', () => {
     }
 });
 
+// ============================================
+// 学校列表加载功能
+// ============================================
+
+async function loadSchoolList() {
+    try {
+        console.log('📚 加载学校列表...');
+        
+        // 尝试从服务器加载
+        const response = await fetch('schools.json');
+        if (!response.ok) {
+            throw new Error('无法加载学校列表文件');
+        }
+        
+        const data = await response.json();
+        const schools = data.schools || [];
+        
+        console.log(`✅ 加载了 ${schools.length} 所学校`);
+        
+        // 填充下拉框
+        const schoolSelect = document.getElementById('school');
+        schools.forEach(school => {
+            const option = document.createElement('option');
+            option.value = school;
+            option.textContent = school;
+            schoolSelect.appendChild(option);
+        });
+        
+    } catch (error) {
+        console.error('❌ 加载学校列表失败:', error);
+        console.warn('⚠️ 使用默认学校列表');
+        
+        // 降级方案：使用硬编码的默认列表
+        const defaultSchools = [
+            '广州市海珠区实验小学',
+            '广州市海珠区第二实验小学',
+            '广州市第五中学',
+            '广州市第四十一中学',
+            '广州市第九十七中学',
+            '广州市南武中学',
+            '其他学校'
+        ];
+        
+        const schoolSelect = document.getElementById('school');
+        defaultSchools.forEach(school => {
+            const option = document.createElement('option');
+            option.value = school;
+            option.textContent = school;
+            schoolSelect.appendChild(option);
+        });
+    }
+}
+
+// ============================================
 // 监听配置变化（当管理端修改配置时）
+// ============================================
 window.addEventListener('storage', (e) => {
     if (e.key === 'submissionSpecs') {
         console.log('检测到配置更新，刷新显示...');

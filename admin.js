@@ -81,8 +81,8 @@ function loadSpecsForm() {
         document.getElementById('imageMinDPI').value = specs.image.minDPI || 300;
         document.getElementById('imageMinWidth').value = specs.image.minWidth || 2400;
         document.getElementById('imageMinHeight').value = specs.image.minHeight || 1800;
-        document.getElementById('imageMinSize').value = specs.image.minSize || 5;
-        document.getElementById('imageMaxFiles').value = specs.image.maxFiles || 10;
+        document.getElementById('imageMaxSize').value = specs.image.maxSize || 1;
+        document.getElementById('imageMaxFiles').value = specs.image.maxFiles || 5;
     }
     
     // 通用配置
@@ -132,7 +132,7 @@ document.getElementById('specsForm').addEventListener('submit', function(e) {
             minDPI: parseInt(document.getElementById('imageMinDPI').value),
             minWidth: parseInt(document.getElementById('imageMinWidth').value),
             minHeight: parseInt(document.getElementById('imageMinHeight').value),
-            minSize: parseInt(document.getElementById('imageMinSize').value),
+            maxSize: parseFloat(document.getElementById('imageMaxSize').value),
             maxFiles: parseInt(document.getElementById('imageMaxFiles').value)
         },
         deadline: document.getElementById('deadline').value.replace('T', ' '),

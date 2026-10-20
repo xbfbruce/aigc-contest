@@ -274,15 +274,15 @@
                             </div>
                             
                             <div class="form-group">
-                                <label for="imageMinSize">最小文件大小（MB）</label>
-                                <input type="number" id="imageMinSize" value="5" min="1">
-                                <small>确保高质量图片，低于此值会被拒绝</small>
+                                <label for="imageMaxSize">最大文件大小（MB）</label>
+                                <input type="number" id="imageMaxSize" value="1" min="0.5" max="10" step="0.5">
+                                <small>单张图片不超过此大小，避免上传过慢</small>
                             </div>
                             
                             <div class="form-group">
                                 <label for="imageMaxFiles">最多上传图片数量</label>
-                                <input type="number" id="imageMaxFiles" value="10" min="1" max="50">
-                                <small>支持单张图、组图、连环画等形式</small>
+                                <input type="number" id="imageMaxFiles" value="5" min="1" max="20">
+                                <small>支持单张图、组图、连环画等形式，最多5张</small>
                             </div>
                         </div>
                         
