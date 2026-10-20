@@ -278,10 +278,10 @@ uploadArea.addEventListener('drop', async (e) => {
     updateFileList();
 });
 
-// 字符计数
-document.getElementById('description').addEventListener('input', function() {
-    document.getElementById('charCount').textContent = this.value.length;
-});
+// 字符计数(已删除描述字段,注释掉此代码)
+// document.getElementById('description').addEventListener('input', function() {
+//     document.getElementById('charCount').textContent = this.value.length;
+// });
 
 // 将文件转换为base64
 function fileToBase64(file) {
@@ -650,9 +650,15 @@ async function contestantLogin(loginInput) {
     document.getElementById('name').value = matched.name;
     document.getElementById('name').readOnly = true; // 不允许修改
     
+    // 加载学校列表(确保下拉框有选项)
+    loadSchoolList();
+    
     if (matched.school) {
-        document.getElementById('school').value = matched.school;
-        document.getElementById('school').disabled = true; // 不允许修改
+        // 等待学校列表加载完成后再设置值
+        setTimeout(() => {
+            document.getElementById('school').value = matched.school;
+            document.getElementById('school').disabled = true; // 不允许修改
+        }, 100);
     }
     
     console.log('✅ 选手登录成功:', matched.name);
@@ -765,9 +771,15 @@ window.addEventListener('load', () => {
                 document.getElementById('name').value = currentContestant.name;
                 document.getElementById('name').readOnly = true;
                 
+                // 加载学校列表(确保下拉框有选项)
+                loadSchoolList();
+                
                 if (currentContestant.school) {
-                    document.getElementById('school').value = currentContestant.school;
-                    document.getElementById('school').disabled = true;
+                    // 等待学校列表加载完成后再设置值
+                    setTimeout(() => {
+                        document.getElementById('school').value = currentContestant.school;
+                        document.getElementById('school').disabled = true;
+                    }, 100);
                 }
             }
         });
