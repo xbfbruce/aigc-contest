@@ -1,8 +1,10 @@
 // 评委登录
 let currentJudge = null;
 let works = [];
+let filteredWorks = []; // 过滤后的作品列表
 let currentWork = null;
 let scores = {};
+let currentGroupFilter = ''; // 当前组别筛选
 
 document.getElementById('judgeLoginForm').addEventListener('submit', function(e) {
     e.preventDefault();
@@ -47,20 +49,46 @@ function loadWorks() {
     
     console.log('过滤后的作品:', works);
     
+    // 应用组别筛选
+    applyGroupFilter();
+}
+
+// 按组别筛选作品
+function filterWorksByGroup() {
+    const groupFilter = document.getElementById('groupFilter').value;
+    currentGroupFilter = groupFilter;
+    console.log('🔍 组别筛选:', groupFilter);
+    applyGroupFilter();
+}
+
+// 应用组别筛选
+function applyGroupFilter() {
+    if (!currentGroupFilter) {
+        filteredWorks = [...works];
+    } else {
+        filteredWorks = works.filter(w => w.group_name === currentGroupFilter);
+    }
+    
+    console.log(`📊 显示 ${filteredWorks.length} 个作品 (总共 ${works.length} 个)`);
     renderWorksList();
+    updateProgress();
 }
 
 function renderWorksList() {
     const container = document.getElementById('worksList');
     
-    if (works.length === 0) {
-        container.innerHTML = '<div class="empty-state">暂无分配的作品</div>';
+    if (filteredWorks.length === 0) {
+        if (currentGroupFilter) {
+            container.innerHTML = '<div class="empty-state">该组别暂无分配的作品</div>';
+        } else {
+            container.innerHTML = '<div class="empty-state">暂无分配的作品</div>';
+        }
         return;
     }
     
     const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
     
-    container.innerHTML = works.map(work => {
+    container.innerHTML = filteredWorks.map(work => {
         const scored = judgeScores.find(s => s.workId === work.id && s.judgeAccount === currentJudge.account);
         const statusClass = scored ? 'status-scored' : 'status-pending';
         const statusText = scored ? '已评分' : '待评分';
@@ -73,6 +101,7 @@ function renderWorksList() {
                 </div>
                 <div class="work-meta">
                     分类：${getCategoryName(work.category)} | 
+                    组别：${work.group_name || '未分配'} | 
                     学校：${work.school} | 
                     ${scored ? '得分：' + scored.totalScore : '点击开始评分'}
                 </div>
@@ -93,7 +122,7 @@ function getCategoryName(value) {
 
 // 打开打分面板
 function openScoringPanel(workId) {
-    currentWork = works.find(w => w.id === workId);
+    currentWork = filteredWorks.find(w => w.id === workId);
     if (!currentWork) {
         alert('作品不存在');
         return;
@@ -106,6 +135,12 @@ function openScoringPanel(workId) {
     document.getElementById('detailCategory').textContent = getCategoryName(currentWork.category);
     document.getElementById('detailSchool').textContent = currentWork.school || '未知';
     document.getElementById('detailDescription').textContent = currentWork.description || '无描述';
+    
+    // 显示组别信息
+    const groupDisplay = document.getElementById('detailGroup');
+    if (groupDisplay) {
+        groupDisplay.textContent = currentWork.group_name || '未分配';
+    }
     
     // 显示文件列表
     const filesContainer = document.getElementById('detailFiles');
@@ -284,9 +319,9 @@ function submitScore() {
 
 // 更新进度
 function updateProgress() {
-    const total = works.length;
+    const total = filteredWorks.length;
     const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
-    const scored = works.filter(w => 
+    const scored = filteredWorks.filter(w => 
         judgeScores.find(s => s.workId === w.id && s.judgeAccount === currentJudge.account)
     ).length;
     

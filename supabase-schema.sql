@@ -46,6 +46,7 @@ CREATE TABLE works (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     contestant_id UUID REFERENCES contestants(id) ON DELETE CASCADE,
     category TEXT NOT NULL CHECK (category IN ('video', 'image')),
+    group_name TEXT,
     title TEXT NOT NULL,
     description TEXT,
     file_name TEXT NOT NULL,
@@ -59,6 +60,7 @@ CREATE TABLE works (
 -- 添加索引
 CREATE INDEX idx_works_contestant ON works(contestant_id);
 CREATE INDEX idx_works_category ON works(category);
+CREATE INDEX idx_works_group ON works(group_name);
 CREATE INDEX idx_works_status ON works(status);
 CREATE INDEX idx_works_submit_time ON works(submit_time DESC);
 

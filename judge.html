@@ -50,7 +50,23 @@
                     </div>
                 </div>
 
-                <h2>待评审作品列表</h2>
+                <!-- 组别筛选器 -->
+                <div class="filter-section" style="margin-bottom: 1.5rem;">
+                    <h2>待评审作品列表</h2>
+                    <div class="form-group" style="max-width: 400px; margin-top: 1rem;">
+                        <label for="groupFilter">选择组别</label>
+                        <select id="groupFilter" onchange="filterWorksByGroup()">
+                            <option value="">全部组别</option>
+                            <option value="视频类小学低年级组">视频类小学低年级组</option>
+                            <option value="视频类小学高年级组">视频类小学高年级组</option>
+                            <option value="视频类初中组">视频类初中组</option>
+                            <option value="视频高中组">视频高中组</option>
+                            <option value="漫画类小学低年级组">漫画类小学低年级组</option>
+                            <option value="漫画类小学高年级组">漫画类小学高年级组</option>
+                            <option value="漫画类初中组">漫画类初中组</option>
+                        </select>
+                    </div>
+                </div>
                 
                 <div class="works-list" id="worksList">
                     <div class="empty-state">暂无分配的作品</div>
@@ -69,6 +85,7 @@
                             <div class="info-grid">
                                 <div><strong>标题：</strong><span id="detailTitle">-</span></div>
                                 <div><strong>分类：</strong><span id="detailCategory">-</span></div>
+                                <div><strong>组别：</strong><span id="detailGroup">-</span></div>
                                 <div><strong>作者：</strong><span id="detailAuthor">匿名</span></div>
                                 <div><strong>学校：</strong><span id="detailSchool">-</span></div>
                             </div>

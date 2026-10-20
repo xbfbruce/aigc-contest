@@ -181,11 +181,11 @@ async function validateImageFile(file) {
         return { valid: false, error: `图片格式不正确，支持：${imageConfig.formats.join(', ')}` };
     }
     
-    // 检查文件大小 - 最大1MB
-    const maxSizeMB = imageConfig.maxSize || 1;
-    if (file.size > maxSizeMB * 1024 * 1024) {
+    // 检查文件大小 - 最小1MB(确保高质量)
+    const minSizeMB = imageConfig.minSize || 1;
+    if (file.size < minSizeMB * 1024 * 1024) {
         const sizeMB = (file.size / 1024 / 1024).toFixed(2);
-        return { valid: false, error: `文件太大：当前${sizeMB}MB，单张不超过${maxSizeMB}MB` };
+        return { valid: false, error: `文件太小：当前${sizeMB}MB，单张至少需要${minSizeMB}MB（确保高质量）` };
     }
     
     // 检查图片数量限制
@@ -336,6 +336,7 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
         const workData = {
             contestant_id: contestantId,
             category: formData.get('category'),
+            group_name: document.getElementById('group').value || currentContestant?.group || '',
             title: formData.get('workTitle'),
             description: formData.get('description'),
             file_name: files.map(f => f.name).join(', '),
@@ -646,22 +647,24 @@ async function contestantLogin(loginInput) {
     document.getElementById('loginSection').style.display = 'none';
     document.getElementById('formSection').style.display = 'block';
     
-    // 自动填充姓名和学校
+    // 自动填充姓名、学校和组别
     document.getElementById('name').value = matched.name;
     document.getElementById('name').readOnly = true; // 不允许修改
     
-    // 加载学校列表(确保下拉框有选项)
-    loadSchoolList();
-    
+    // 填充隐藏字段和显示字段
     if (matched.school) {
-        // 等待学校列表加载完成后再设置值
-        setTimeout(() => {
-            document.getElementById('school').value = matched.school;
-            document.getElementById('school').disabled = true; // 不允许修改
-        }, 100);
+        document.getElementById('school').value = matched.school;
+        document.getElementById('schoolDisplay').textContent = matched.school;
+        document.getElementById('schoolDisplayGroup').style.display = 'block';
     }
     
-    console.log('✅ 选手登录成功:', matched.name);
+    if (matched.group) {
+        document.getElementById('group').value = matched.group;
+        document.getElementById('groupDisplay').textContent = matched.group;
+        document.getElementById('groupDisplayGroup').style.display = 'block';
+    }
+    
+    console.log('✅ 选手登录成功:', matched.name, '学校:', matched.school, '组别:', matched.group);
     return matched;
 }
 
@@ -771,15 +774,17 @@ window.addEventListener('load', () => {
                 document.getElementById('name').value = currentContestant.name;
                 document.getElementById('name').readOnly = true;
                 
-                // 加载学校列表(确保下拉框有选项)
-                loadSchoolList();
-                
+                // 填充学校和组别
                 if (currentContestant.school) {
-                    // 等待学校列表加载完成后再设置值
-                    setTimeout(() => {
-                        document.getElementById('school').value = currentContestant.school;
-                        document.getElementById('school').disabled = true;
-                    }, 100);
+                    document.getElementById('school').value = currentContestant.school;
+                    document.getElementById('schoolDisplay').textContent = currentContestant.school;
+                    document.getElementById('schoolDisplayGroup').style.display = 'block';
+                }
+                
+                if (currentContestant.group) {
+                    document.getElementById('group').value = currentContestant.group;
+                    document.getElementById('groupDisplay').textContent = currentContestant.group;
+                    document.getElementById('groupDisplayGroup').style.display = 'block';
                 }
             }
         });

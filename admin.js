@@ -81,7 +81,7 @@ function loadSpecsForm() {
         document.getElementById('imageMinDPI').value = specs.image.minDPI || 300;
         document.getElementById('imageMinWidth').value = specs.image.minWidth || 2400;
         document.getElementById('imageMinHeight').value = specs.image.minHeight || 1800;
-        document.getElementById('imageMaxSize').value = specs.image.maxSize || 1;
+        document.getElementById('imageMinSize').value = specs.image.minSize || 1;
         document.getElementById('imageMaxFiles').value = specs.image.maxFiles || 5;
     }
     
@@ -132,7 +132,7 @@ document.getElementById('specsForm').addEventListener('submit', function(e) {
             minDPI: parseInt(document.getElementById('imageMinDPI').value),
             minWidth: parseInt(document.getElementById('imageMinWidth').value),
             minHeight: parseInt(document.getElementById('imageMinHeight').value),
-            maxSize: parseFloat(document.getElementById('imageMaxSize').value),
+            minSize: parseFloat(document.getElementById('imageMinSize').value),
             maxFiles: parseInt(document.getElementById('imageMaxFiles').value)
         },
         deadline: document.getElementById('deadline').value.replace('T', ' '),

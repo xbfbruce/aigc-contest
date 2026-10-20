@@ -85,13 +85,19 @@
                         <input type="text" id="name" name="name" required placeholder="请输入您的姓名">
                     </div>
 
-                    <div class="form-group">
-                        <label for="school">学校 *</label>
-                        <select id="school" name="school" required>
-                            <option value="">请选择学校</option>
-                            <!-- 动态加载学校列表 -->
-                        </select>
-                        <small style="color: var(--text-secondary);">如果找不到您的学校,请联系管理员添加</small>
+                    <!-- 隐藏的学校和组别字段(自动填充) -->
+                    <input type="hidden" id="school" name="school">
+                    <input type="hidden" id="group" name="group">
+                    
+                    <!-- 显示用的只读字段 -->
+                    <div class="form-group" id="schoolDisplayGroup" style="display: none;">
+                        <label>学校</label>
+                        <div id="schoolDisplay" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; color: var(--text-primary);"></div>
+                    </div>
+                    
+                    <div class="form-group" id="groupDisplayGroup" style="display: none;">
+                        <label>参赛组别</label>
+                        <div id="groupDisplay" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; color: var(--text-primary); font-weight: 600;"></div>
                     </div>
 
                     <div class="form-group">
