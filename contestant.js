@@ -462,21 +462,32 @@ window.addEventListener('load', () => {
 
 async function loadSchoolList() {
     try {
-        console.log('📚 加载学校列表...');
+        console.log(' 加载学校列表...');
         
-        // 尝试从服务器加载
-        const response = await fetch('schools.json');
+        // 检查school元素是否存在
+        const schoolSelect = document.getElementById('school');
+        if (!schoolSelect) {
+            console.error('❌ 未找到school下拉框元素');
+            return;
+        }
+        
+        // 尝试从服务器加载(使用相对路径)
+        console.log(' 尝试加载 schools.json...');
+        const response = await fetch('./schools.json');
+        
         if (!response.ok) {
-            throw new Error('无法加载学校列表文件');
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
         const data = await response.json();
         const schools = data.schools || [];
         
-        console.log(`✅ 加载了 ${schools.length} 所学校`);
+        console.log(`✅ 成功加载 ${schools.length} 所学校`);
+        
+        // 清空现有选项(保留第一个"请选择")
+        schoolSelect.innerHTML = '<option value="">请选择学校</option>';
         
         // 填充下拉框
-        const schoolSelect = document.getElementById('school');
         schools.forEach(school => {
             const option = document.createElement('option');
             option.value = school;
@@ -484,28 +495,37 @@ async function loadSchoolList() {
             schoolSelect.appendChild(option);
         });
         
+        console.log('✅ 学校列表已填充');
+        
     } catch (error) {
-        console.error('❌ 加载学校列表失败:', error);
+        console.error('❌ 加载学校列表失败:', error.message);
         console.warn('⚠️ 使用默认学校列表');
         
         // 降级方案：使用硬编码的默认列表
         const defaultSchools = [
-            '广州市海珠区实验小学',
-            '广州市海珠区第二实验小学',
-            '广州市第五中学',
-            '广州市第四十一中学',
-            '广州市第九十七中学',
-            '广州市南武中学',
+            '广州海珠外国语实验中学附属第二小学',
+            '广州市海珠区晓园小学',
+            '广州市宝玉直小学',
+            '广州市海珠区宝玉直实验小学',
+            '广州市海珠区绿翠小学',
+            '广州市海珠区昌岗中路小学',
+            '广州市南武中学附属学校',
+            '广州市逸景第一小学',
+            '广州市海珠区大元帅府小学',
             '其他学校'
         ];
         
         const schoolSelect = document.getElementById('school');
-        defaultSchools.forEach(school => {
-            const option = document.createElement('option');
-            option.value = school;
-            option.textContent = school;
-            schoolSelect.appendChild(option);
-        });
+        if (schoolSelect) {
+            schoolSelect.innerHTML = '<option value="">请选择学校</option>';
+            defaultSchools.forEach(school => {
+                const option = document.createElement('option');
+                option.value = school;
+                option.textContent = school;
+                schoolSelect.appendChild(option);
+            });
+            console.log(`✅ 已加载 ${defaultSchools.length} 所默认学校`);
+        }
     }
 }
 
