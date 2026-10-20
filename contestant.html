@@ -26,7 +26,7 @@
             <section id="loginSection" class="login-section" style="max-width: 500px; margin: 2rem auto;">
                 <h2>🔐 选手登录</h2>
                 <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">请使用姓名或手机号登录</p>
-                <form id="contestantLoginForm" class="login-form">
+                <form id="contestantLoginForm" class="login-form" onsubmit="handleLogin(event)">
                     <div class="form-group">
                         <label for="loginInput">姓名或手机号 *</label>
                         <input type="text" id="loginInput" required placeholder="请输入您的姓名或手机号">
@@ -49,36 +49,37 @@
 
             <!-- 参赛信息表单(登录后显示) -->
             <section id="formSection" class="form-section" style="display: none;">
-            <section class="specs-section">
-                <h2>📋 作品提交规范</h2>
-                <div class="specs-box" id="submissionSpecs">
-                    <div id="videoSpecsSection" class="spec-category">
-                        <h3>🎬 视频作品</h3>
-                        <ul id="videoSpecsList">
-                            <!-- 动态生成 -->
-                        </ul>
+                <!-- 作品规格公示 -->
+                <section class="specs-section">
+                    <h2>📋 作品提交规范</h2>
+                    <div class="specs-box" id="submissionSpecs">
+                        <div id="videoSpecsSection" class="spec-category">
+                            <h3>🎬 视频作品</h3>
+                            <ul id="videoSpecsList">
+                                <!-- 动态生成 -->
+                            </ul>
+                        </div>
+                        
+                        <div id="imageSpecsSection" class="spec-category">
+                            <h3>🖼️ 图像作品</h3>
+                            <ul id="imageSpecsList">
+                                <!-- 动态生成 -->
+                            </ul>
+                        </div>
+                        
+                        <div id="generalSpecs" class="spec-category" style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                            <h3>📝 通用要求</h3>
+                            <ul id="generalSpecsList">
+                                <!-- 动态生成 -->
+                            </ul>
+                        </div>
                     </div>
-                    
-                    <div id="imageSpecsSection" class="spec-category">
-                        <h3>🖼️ 图像作品</h3>
-                        <ul id="imageSpecsList">
-                            <!-- 动态生成 -->
-                        </ul>
-                    </div>
-                    
-                    <div id="generalSpecs" class="spec-category" style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
-                        <h3>📝 通用要求</h3>
-                        <ul id="generalSpecsList">
-                            <!-- 动态生成 -->
-                        </ul>
-                    </div>
-                </div>
-            </section>
+                </section>
 
-            <!-- 参赛信息表单 -->
-            <section class="form-section">
-                <h2>📝 参赛信息填写</h2>
-                <form id="contestantForm" class="submission-form">
+                <!-- 参赛信息表单 -->
+                <section class="form-section">
+                    <h2>📝 参赛信息填写</h2>
+                    <form id="contestantForm" class="submission-form">
                     <div class="form-group">
                         <label for="name">姓名 *</label>
                         <input type="text" id="name" name="name" required placeholder="请输入您的姓名">

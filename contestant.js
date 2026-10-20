@@ -582,25 +582,34 @@ async function loadContestantList() {
 
 // 选手登录验证
 async function contestantLogin(loginInput) {
+    console.log('🔐 contestantLogin 被调用, 输入:', loginInput);
+    
     const input = loginInput.trim();
     
     if (!input) {
+        console.warn('⚠️ 输入为空');
         showLoginError('请输入姓名或手机号');
         return null;
     }
     
     // 加载选手名单
+    console.log('📋 开始加载选手名单...');
     const contestants = await loadContestantList();
+    console.log(`✅ 加载了 ${contestants.length} 名选手`);
     
     // 查找匹配的选手(支持姓名或手机号)
+    console.log('🔍 查找匹配选手:', input);
     const matched = contestants.find(c => 
         c.name === input || c.phone === input
     );
     
     if (!matched) {
+        console.warn('⚠️ 未找到匹配选手');
         showLoginError('未找到匹配的选手,请检查输入或联系管理员');
         return null;
     }
+    
+    console.log('✅ 找到匹配选手:', matched);
     
     // 检查是否已提交
     const submittedWorks = await checkIfSubmitted(matched.name);
@@ -681,15 +690,23 @@ function showAlreadySubmitted(work) {
     `;
 }
 
-// 监听登录表单提交
+// 处理登录表单提交(HTML中直接调用)
+async function handleLogin(e) {
+    e.preventDefault();
+    console.log('🔐 开始登录验证...');
+    const loginInput = document.getElementById('loginInput').value;
+    console.log('输入:', loginInput);
+    await contestantLogin(loginInput);
+}
+
+// 监听登录表单提交(备用方案)
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('contestantLoginForm');
     if (loginForm) {
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const loginInput = document.getElementById('loginInput').value;
-            await contestantLogin(loginInput);
-        });
+        // 已经通过onsubmit绑定,这里作为备用
+        console.log('✅ 登录表单已就绪');
+    } else {
+        console.error('❌ 未找到登录表单元素');
     }
 });
 
