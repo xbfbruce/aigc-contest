@@ -529,6 +529,95 @@ class StorageAdapter {
         console.log(`🔄 已切换到${this.useSupabase ? 'Supabase' : 'localStorage'}模式`);
         return this.useSupabase;
     }
+
+    // ============================================
+    // Page Views 操作 (访问统计)
+    // ============================================
+
+    async recordPageView(pageName = 'unknown') {
+        if (this.useSupabase && this.supabase) {
+            try {
+                const { error } = await this.supabase
+                    .from('page_views')
+                    .insert([{
+                        page_name: pageName,
+                        visited_at: new Date().toISOString(),
+                        user_agent: navigator.userAgent,
+                        referrer: document.referrer || null
+                    }]);
+                
+                if (error) {
+                    console.warn('⚠️ 记录访问失败:', error.message);
+                } else {
+                    console.log('✅ 访问已记录');
+                }
+            } catch (err) {
+                console.error('❌ 记录访问错误:', err);
+            }
+        }
+        // localStorage模式下不记录
+    }
+
+    async getPageViews(filters = {}) {
+        if (this.useSupabase && this.supabase) {
+            let query = this.supabase
+                .from('page_views')
+                .select('*');
+            
+            if (filters.page_name) {
+                query = query.eq('page_name', filters.page_name);
+            }
+            if (filters.start_date) {
+                query = query.gte('visited_at', filters.start_date);
+            }
+            if (filters.end_date) {
+                query = query.lte('visited_at', filters.end_date);
+            }
+            
+            query = query.order('visited_at', { ascending: false });
+            
+            const { data, error } = await query;
+            if (error) throw error;
+            return data || [];
+        }
+        return [];
+    }
+
+    async getPageViewStats() {
+        if (this.useSupabase && this.supabase) {
+            // 获取总访问量
+            const { count: totalCount, error: countError } = await this.supabase
+                .from('page_views')
+                .select('*', { count: 'exact', head: true });
+            
+            if (countError) throw countError;
+            
+            // 获取各页面访问量
+            const { data: pageStats, error: pageError } = await this.supabase
+                .from('page_views')
+                .select('page_name, count')
+                .rpc('count_page_views_by_name');
+            
+            // 获取今日访问量
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const todayStr = today.toISOString();
+            
+            const { count: todayCount, error: todayError } = await this.supabase
+                .from('page_views')
+                .select('*', { count: 'exact', head: true })
+                .gte('visited_at', todayStr);
+            
+            if (todayError) throw todayError;
+            
+            return {
+                total: totalCount || 0,
+                today: todayCount || 0,
+                byPage: pageStats || []
+            };
+        }
+        return { total: 0, today: 0, byPage: [] };
+    }
 }
 
 // 创建全局单例

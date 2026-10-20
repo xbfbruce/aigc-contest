@@ -240,7 +240,52 @@ USING (true)
 WITH CHECK (true);
 
 -- ============================================
--- 7. 初始化默认配置
+-- 7. 页面访问统计表 (page_views)
+-- ============================================
+CREATE TABLE page_views (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    page_name TEXT NOT NULL,
+    visited_at TIMESTAMPTZ DEFAULT NOW(),
+    user_agent TEXT,
+    referrer TEXT
+);
+
+-- 添加索引
+CREATE INDEX idx_page_views_page_name ON page_views(page_name);
+CREATE INDEX idx_page_views_visited_at ON page_views(visited_at DESC);
+
+-- 行级安全策略
+ALTER TABLE page_views ENABLE ROW LEVEL SECURITY;
+
+-- 允许所有人插入访问记录
+CREATE POLICY "Anyone can insert page views" 
+ON page_views FOR INSERT 
+TO anon, authenticated 
+WITH CHECK (true);
+
+-- 允许authenticated用户读取（管理员查看统计）
+CREATE POLICY "Authenticated users can view page views" 
+ON page_views FOR SELECT 
+TO authenticated 
+USING (true);
+
+-- 创建按页面名称统计的函数
+CREATE OR REPLACE FUNCTION count_page_views_by_name()
+RETURNS TABLE (
+    page_name TEXT,
+    count BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT pv.page_name, COUNT(*)::BIGINT as count
+    FROM page_views pv
+    GROUP BY pv.page_name
+    ORDER BY count DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================
+-- 9. 初始化默认配置
 -- ============================================
 INSERT INTO configs (key, value) VALUES
 ('submission_specs', '{

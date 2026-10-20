@@ -47,6 +47,7 @@
                     <button class="tab-btn" onclick="switchTab('assign')">作品分配</button>
                     <button class="tab-btn" onclick="switchTab('scores')">实时评分</button>
                     <button class="tab-btn" onclick="switchTab('ranking')">排名导出</button>
+                    <button class="tab-btn" onclick="switchTab('analytics')">访问统计</button>
                     <button class="tab-btn" onclick="switchTab('admin')">管理员设置</button>
                 </div>
 
@@ -372,6 +373,73 @@
                         <button type="submit" class="btn-primary">更新设置</button>
                     </form>
                 </div>
+
+                <!-- 访问统计 -->
+                <div id="analyticsTab" class="tab-content">
+                    <div class="tab-header">
+                        <h3>📊 网站访问统计</h3>
+                        <button onclick="refreshAnalytics()" class="btn-secondary btn-sm">🔄 刷新数据</button>
+                    </div>
+                    
+                    <div class="stats-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                        <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 8px;">
+                            <div style="font-size: 0.9rem; opacity: 0.9;">总访问量</div>
+                            <div style="font-size: 2rem; font-weight: bold; margin-top: 0.5rem;" id="totalViews">-</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 1.5rem; border-radius: 8px;">
+                            <div style="font-size: 0.9rem; opacity: 0.9;">今日访问</div>
+                            <div style="font-size: 2rem; font-weight: bold; margin-top: 0.5rem;" id="todayViews">-</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 1.5rem; border-radius: 8px;">
+                            <div style="font-size: 0.9rem; opacity: 0.9;">作品提交</div>
+                            <div style="font-size: 2rem; font-weight: bold; margin-top: 0.5rem;" id="submissionCount">-</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 1.5rem; border-radius: 8px;">
+                            <div style="font-size: 0.9rem; opacity: 0.9;">评委人数</div>
+                            <div style="font-size: 2rem; font-weight: bold; margin-top: 0.5rem;" id="judgeCount">-</div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 2rem;">
+                        <h4>各页面访问量</h4>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>页面</th>
+                                        <th>访问次数</th>
+                                        <th>占比</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pageViewsTable">
+                                    <tr>
+                                        <td colspan="3" style="text-align: center; color: var(--text-secondary);">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 2rem;">
+                        <h4>最近访问记录</h4>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>访问时间</th>
+                                        <th>页面</th>
+                                        <th>来源</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recentVisitsTable">
+                                    <tr>
+                                        <td colspan="3" style="text-align: center; color: var(--text-secondary);">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </section>
         </div>
     </div>
@@ -405,6 +473,7 @@
     </div>
 
     <script src="storage-adapter.js"></script>
+    <script src="analytics.js"></script>
     <script src="admin.js"></script>
     <script src="background.js"></script>
 </body>

@@ -46,6 +46,14 @@ function switchTab(tabName) {
     } else if (tabName === 'assign') {
         document.getElementById('assignTab').classList.add('active');
         loadAssignData();
+    } else if (tabName === 'scores') {
+        document.getElementById('scoresTab').classList.add('active');
+        refreshScores();
+    } else if (tabName === 'ranking') {
+        document.getElementById('rankingTab').classList.add('active');
+    } else if (tabName === 'analytics') {
+        document.getElementById('analyticsTab').classList.add('active');
+        refreshAnalytics();
     } else if (tabName === 'admin') {
         document.getElementById('adminTab').classList.add('active');
     }
@@ -1169,3 +1177,84 @@ window.addEventListener('load', () => {
         ]));
     }
 });
+
+// ============================================
+// 访问统计功能
+// ============================================
+
+async function refreshAnalytics() {
+    try {
+        console.log('📊 加载访问统计数据...');
+        
+        // 获取页面访问统计
+        const stats = await storage.getPageViewStats();
+        console.log('✅ 统计数据:', stats);
+        
+        // 更新总览卡片
+        document.getElementById('totalViews').textContent = stats.total || 0;
+        document.getElementById('todayViews').textContent = stats.today || 0;
+        
+        // 获取作品提交数量
+        const works = await storage.listWorks();
+        document.getElementById('submissionCount').textContent = works.length;
+        
+        // 获取评委数量
+        const judges = await storage.listJudges();
+        document.getElementById('judgeCount').textContent = judges.length;
+        
+        // 更新各页面访问量表格
+        const pageViewsTable = document.getElementById('pageViewsTable');
+        if (stats.byPage && stats.byPage.length > 0) {
+            const totalFromPages = stats.byPage.reduce((sum, p) => sum + (p.count || 0), 0);
+            pageViewsTable.innerHTML = stats.byPage.map(page => {
+                const count = page.count || 0;
+                const percentage = totalFromPages > 0 ? ((count / totalFromPages) * 100).toFixed(1) : 0;
+                const pageNames = {
+                    'index': '首页',
+                    'contestant': '选手端',
+                    'judge': '评委端',
+                    'admin': '管理端'
+                };
+                return `
+                    <tr>
+                        <td>${pageNames[page.page_name] || page.page_name}</td>
+                        <td>${count}</td>
+                        <td>${percentage}%</td>
+                    </tr>
+                `;
+            }).join('');
+        } else {
+            pageViewsTable.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">暂无数据，等待用户访问...</td></tr>';
+        }
+        
+        // 更新最近访问记录
+        const recentVisits = await storage.getPageViews({ limit: 20 });
+        const recentVisitsTable = document.getElementById('recentVisitsTable');
+        if (recentVisits && recentVisits.length > 0) {
+            recentVisitsTable.innerHTML = recentVisits.slice(0, 20).map(view => {
+                const date = new Date(view.visited_at);
+                const timeStr = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                const pageNames = {
+                    'index': '首页',
+                    'contestant': '选手端',
+                    'judge': '评委端',
+                    'admin': '管理端'
+                };
+                const referrer = view.referrer ? (new URL(view.referrer)).hostname : '直接访问';
+                return `
+                    <tr>
+                        <td>${timeStr}</td>
+                        <td>${pageNames[view.page_name] || view.page_name}</td>
+                        <td>${referrer}</td>
+                    </tr>
+                `;
+            }).join('');
+        } else {
+            recentVisitsTable.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">暂无访问记录</td></tr>';
+        }
+        
+    } catch (error) {
+        console.error('❌ 加载访问统计失败:', error);
+        alert('加载统计数据失败: ' + error.message);
+    }
+}
