@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理端 - 系统配置</title>
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+    <nav class="top-nav">
+        <div class="nav-brand">
+            <a href="index.html">◆ 千问 AIGC 大赛</a>
+        </div>
+        <div class="nav-info">
+            <span id="adminName">管理员：<span class="admin-name-display">未登录</span></span>
+            <button onclick="logout()" class="logout-btn">退出登录</button>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <div class="container">
+            <!-- 登录区域 -->
+            <section id="loginSection" class="login-section">
+                <h2>管理员登录</h2>
+                <form id="adminLoginForm" class="login-form">
+                    <div class="form-group">
+                        <label for="adminUsername">账号</label>
+                        <input type="text" id="adminUsername" required placeholder="请输入管理员账号">
+                    </div>
+                    <div class="form-group">
+                        <label for="adminPassword">密码</label>
+                        <input type="password" id="adminPassword" required placeholder="请输入密码">
+                    </div>
+                    <button type="submit" class="btn-primary">登录</button>
+                </form>
+            </section>
+
+            <!-- 管理控制台（登录后显示） -->
+            <section id="dashboardSection" class="dashboard-section" style="display: none;">
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('works')">作品管理</button>
+                    <button class="tab-btn" onclick="switchTab('specs')">作品规格配置</button>
+                    <button class="tab-btn" onclick="switchTab('judges')">评委账号管理</button>
+                    <button class="tab-btn" onclick="switchTab('assign')">作品分配</button>
+                    <button class="tab-btn" onclick="switchTab('scores')">实时评分</button>
+                    <button class="tab-btn" onclick="switchTab('ranking')">排名导出</button>
+                    <button class="tab-btn" onclick="switchTab('admin')">管理员设置</button>
+                </div>
+
+                <!-- 作品管理 -->
+                <div id="worksTab" class="tab-content active">
+                    <div class="tab-header">
+                        <h3>作品列表</h3>
+                        <div>
+                            <span id="worksStats" style="color: var(--text-secondary); margin-right: 1rem;"></span>
+                            <button onclick="selectAllWorksInTable()" class="btn-secondary btn-sm">全选</button>
+                            <button onclick="deselectAllWorksInTable()" class="btn-secondary btn-sm" style="margin-left: 0.5rem;">取消</button>
+                            <button onclick="batchDeleteWorks()" class="btn-secondary btn-sm" style="margin-left: 0.5rem; background: var(--danger);">🗑️ 批量删除</button>
+                        </div>
+                    </div>
+                    
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)"></th>
+                                    <th>提交时间</th>
+                                    <th>作品标题</th>
+                                    <th>分类</th>
+                                    <th>作者</th>
+                                    <th>学校</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="worksTable">
+                                <!-- 动态生成 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 作品分配 -->
+                <div id="assignTab" class="tab-content">
+                    <div class="tab-header">
+                        <h3>作品分配给评委</h3>
+                        <div>
+                            <button onclick="selectAllWorks()" class="btn-secondary btn-sm">全选</button>
+                            <button onclick="deselectAllWorks()" class="btn-secondary btn-sm" style="margin-left: 0.5rem;">取消全选</button>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>选择作品（可多选）</label>
+                        <div id="assignWorkList" class="checkbox-group" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem;">
+                            <!-- 动态生成 -->
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>选择评委（可多选）</label>
+                        <div id="assignJudgeList" class="checkbox-group">
+                            <!-- 动态生成 -->
+                        </div>
+                    </div>
+                    
+                    <button onclick="assignWorks()" class="btn-primary">确认分配</button>
+                    
+                    <div style="margin-top: 2rem;">
+                        <h4>当前分配情况</h4>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>作品</th>
+                                        <th>已分配评委</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="assignmentsTable">
+                                    <!-- 动态生成 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 实时评分查看 -->
+                <div id="scoresTab" class="tab-content">
+                    <div class="tab-header">
+                        <h3>评委打分情况（实时更新）</h3>
+                        <button onclick="refreshScores()" class="btn-secondary btn-sm">🔄 刷新数据</button>
+                    </div>
+                    
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>作品标题</th>
+                                    <th>分类</th>
+                                    <th>作者</th>
+                                    <th>评委</th>
+                                    <th>总分</th>
+                                    <th>评分时间</th>
+                                    <th>状态</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scoresTable">
+                                <!-- 动态生成 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 排名导出 -->
+                <div id="rankingTab" class="tab-content">
+                    <div class="tab-header">
+                        <h3>分数排名与导出</h3>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="exportCategory">选择分类</label>
+                        <select id="exportCategory">
+                            <option value="all">全部分类</option>
+                            <option value="video">视频作品</option>
+                            <option value="image">图像作品</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="sortBy">排序方式</label>
+                        <select id="sortBy">
+                            <option value="totalDesc">总分从高到低</option>
+                            <option value="totalAsc">总分从低到高</option>
+                            <option value="timeDesc">提交时间从新到旧</option>
+                        </select>
+                    </div>
+                    
+                    <button onclick="generateRanking()" class="btn-primary">生成排名</button>
+                    <button onclick="exportToExcel()" class="btn-secondary" style="margin-left: 1rem;">📊 导出Excel</button>
+                    
+                    <div id="rankingResult" style="margin-top: 2rem;">
+                        <!-- 动态生成排名结果 -->
+                    </div>
+                </div>
+
+                <!-- 作品规格配置 -->
+                <div id="specsTab" class="tab-content">
+                    <h3>作品提交规范配置（修改后选手端实时生效）</h3>
+                    
+                    <div class="alert-warning" style="margin-bottom: 1.5rem;">
+                        ⚠️ 注意：以下配置将直接影响选手端的显示内容和上传校验规则，修改后选手端会立即更新
+                    </div>
+                    
+                    <form id="specsForm" class="config-form">
+                        <h4 style="margin: 1.5rem 0 1rem; color: var(--primary);">🎬 视频作品配置</h4>
+                        
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="enableVideo" checked onchange="toggleCategory('video')"> 
+                                启用视频作品类别
+                            </label>
+                        </div>
+                        
+                        <div id="videoConfigSection">
+                            <div class="form-group">
+                                <label for="videoFormats">支持的视频格式（逗号分隔）</label>
+                                <input type="text" id="videoFormats" value="MP4">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="videoMinWidth">最小宽度（像素）</label>
+                                <input type="number" id="videoMinWidth" value="1920" min="640">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="videoMinHeight">最小高度（像素）</label>
+                                <input type="number" id="videoMinHeight" value="1080" min="480">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="videoMaxDuration">最大时长（秒）</label>
+                                <input type="number" id="videoMaxDuration" value="180" min="10">
+                                <small>3分钟 = 180秒</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="videoMaxSize">最大文件大小（MB）</label>
+                                <input type="number" id="videoMaxSize" value="100" min="10">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="videoSubtitleRequired">
+                                    <input type="checkbox" id="videoSubtitleRequired" checked> 
+                                    强制要求中文字幕（仅提示，不校验）
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <h4 style="margin: 1.5rem 0 1rem; color: var(--primary);">🖼️ 图像作品配置</h4>
+                        
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="enableImage" checked onchange="toggleCategory('image')"> 
+                                启用图像作品类别
+                            </label>
+                        </div>
+                        
+                        <div id="imageConfigSection">
+                            <div class="form-group">
+                                <label for="imageFormats">支持的图片格式（逗号分隔）</label>
+                                <input type="text" id="imageFormats" value="JPG, PNG, JPEG">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="imageMinDPI">最低DPI要求</label>
+                                <input type="number" id="imageMinDPI" value="300" min="72">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="imageMinWidth">最小宽度（像素）</label>
+                                <input type="number" id="imageMinWidth" value="2400" min="800">
+                                <small>基于300DPI的A4尺寸估算：8英寸 × 300 = 2400像素</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="imageMinHeight">最小高度（像素）</label>
+                                <input type="number" id="imageMinHeight" value="1800" min="600">
+                                <small>基于300DPI的A4尺寸估算：6英寸 × 300 = 1800像素</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="imageMinSize">最小文件大小（MB）</label>
+                                <input type="number" id="imageMinSize" value="5" min="1">
+                                <small>确保高质量图片，低于此值会被拒绝</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="imageMaxFiles">最多上传图片数量</label>
+                                <input type="number" id="imageMaxFiles" value="10" min="1" max="50">
+                                <small>支持单张图、组图、连环画等形式</small>
+                            </div>
+                        </div>
+                        
+                        <h4 style="margin: 1.5rem 0 1rem; color: var(--primary);">📝 通用配置</h4>
+                        
+                        <div class="form-group">
+                            <label for="deadline">提交截止时间</label>
+                            <input type="datetime-local" id="deadline" value="2026-12-31T23:59">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="maxSubmissionsPerCategory">每人每类可提交作品数</label>
+                            <input type="number" id="maxSubmissionsPerCategory" value="1" min="1" max="10">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="descriptionMinLength">作品描述最少字数</label>
+                            <input type="number" id="descriptionMinLength" value="50" min="10" max="500">
+                        </div>
+                        
+                        <button type="submit" class="btn-primary">💾 保存配置（选手端立即生效）</button>
+                        <button type="button" onclick="resetToDefaults()" class="btn-secondary" style="margin-left: 1rem;">🔄 恢复默认</button>
+                    </form>
+                </div>
+
+                <!-- 评委账号管理 -->
+                <div id="judgesTab" class="tab-content">
+                    <div class="tab-header">
+                        <h3>评委账号管理</h3>
+                        <div>
+                            <button onclick="showAddJudgeModal()" class="btn-primary btn-sm">+ 添加评委</button>
+                            <button onclick="debugJudgesData()" class="btn-secondary btn-sm" style="margin-left: 0.5rem;">🔍 调试数据</button>
+                            <button onclick="clearAllJudges()" class="btn-secondary btn-sm" style="margin-left: 0.5rem; background: var(--danger);">🗑️ 清空所有评委</button>
+                        </div>
+                    </div>
+
+                    <div class="alert-warning" style="margin-bottom: 1rem;">
+                        💡 提示：删除评委会同时清除该评委的所有评分记录和作品分配关系
+                    </div>
+
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>账号</th>
+                                    <th>姓名</th>
+                                    <th>分配作品数</th>
+                                    <th>已评分数</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="judgesTable">
+                                <!-- 动态生成 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 管理员设置 -->
+                <div id="adminTab" class="tab-content">
+                    <h3>管理员账号设置</h3>
+                    <form id="adminSettingsForm" class="config-form">
+                        <div class="form-group">
+                            <label for="currentAdminPassword">当前密码</label>
+                            <input type="password" id="currentAdminPassword" required placeholder="请输入当前密码">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="newAdminUsername">新账号名</label>
+                            <input type="text" id="newAdminUsername" placeholder="留空则不修改">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="newAdminPassword">新密码</label>
+                            <input type="password" id="newAdminPassword" placeholder="留空则不修改">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="confirmNewPassword">确认新密码</label>
+                            <input type="password" id="confirmNewPassword" placeholder="请再次输入新密码">
+                        </div>
+
+                        <div class="alert-warning">
+                            ⚠️ 注意：修改账号或密码后需要重新登录才能生效
+                        </div>
+
+                        <button type="submit" class="btn-primary">更新设置</button>
+                    </form>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- 添加评委模态框 -->
+    <div id="addJudgeModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>添加评委账号</h3>
+                <button onclick="closeAddJudgeModal()" class="close-btn">×</button>
+            </div>
+            <form id="addJudgeForm">
+                <div class="form-group">
+                    <label for="judgeAccount">账号 *</label>
+                    <input type="text" id="judgeAccount" required placeholder="设置评委登录账号">
+                </div>
+                <div class="form-group">
+                    <label for="judgeNameInput">姓名 *</label>
+                    <input type="text" id="judgeNameInput" required placeholder="评委真实姓名">
+                </div>
+                <div class="form-group">
+                    <label for="judgePasswordInput">密码 *</label>
+                    <input type="password" id="judgePasswordInput" required placeholder="设置登录密码">
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeAddJudgeModal()" class="btn-secondary">取消</button>
+                    <button type="submit" class="btn-primary">创建账号</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="storage-adapter.js"></script>
+    <script src="admin.js"></script>
+    <script src="background.js"></script>
+</body>
+</html>

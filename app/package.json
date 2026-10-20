@@ -1,0 +1,11 @@
+{
+  "name": "aigc-contest-api",
+  "version": "1.0.0",
+  "description": "AIGC Contest Backend API",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

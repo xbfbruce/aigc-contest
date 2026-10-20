@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数智新一代 清风绘未来 - 2026年海珠区"清风侠"AI动漫创作大赛</title>
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+    <div class="portal-container">
+        <div class="portal-header">
+            <h1 class="logo">数智新一代 清风绘未来</h1>
+            <p class="subtitle">2026年海珠区"清风侠"AI动漫创作大赛</p>
+            <p class="portal-hint">请选择您的身份进入相应系统</p>
+        </div>
+        
+        <div class="portal-grid">
+            <div class="portal-card contestant" onclick="location.href='contestant.html'">
+                <div class="card-icon">🎨</div>
+                <h2>选手端</h2>
+                <p>作品提交与上传</p>
+                <ul class="features-list">
+                    <li>填写参赛信息</li>
+                    <li>上传作品文件</li>
+                    <li>查看提交状态</li>
+                </ul>
+                <button class="enter-btn">进入系统</button>
+            </div>
+            
+            <div class="portal-card judge" onclick="location.href='judge.html'">
+                <div class="card-icon">⭐</div>
+                <h2>评委端</h2>
+                <p>作品评审打分</p>
+                <ul class="features-list">
+                    <li>查看分配作品</li>
+                    <li>多维度打分</li>
+                    <li>实时保存进度</li>
+                </ul>
+                <button class="enter-btn">进入系统</button>
+            </div>
+            
+            <div class="portal-card admin" onclick="location.href='admin.html'">
+                <div class="card-icon">⚙️</div>
+                <h2>管理端</h2>
+                <p>系统配置管理</p>
+                <ul class="features-list">
+                    <li>配置作品规格</li>
+                    <li>管理评委账号</li>
+                    <li>修改系统设置</li>
+                </ul>
+                <button class="enter-btn">进入系统</button>
+            </div>
+        </div>
+        
+        <div class="footer-credit">
+            <p>本网站由千问AI生成</p>
+        </div>
+    </div>
+    
+    <script src="storage-adapter.js"></script>
+    <script src="background.js"></script>
+</body>
+</html>

@@ -1,0 +1,1171 @@
+// 管理员登录
+let currentAdmin = null;
+
+document.getElementById('adminLoginForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const username = document.getElementById('adminUsername').value;
+    const password = document.getElementById('adminPassword').value;
+    
+    // 验证管理员账号（从localStorage读取）
+    const adminConfig = JSON.parse(localStorage.getItem('adminConfig') || '{"account":"admin","password":"admin123"}');
+    
+    if (username === adminConfig.account && password === adminConfig.password) {
+        currentAdmin = adminConfig;
+        document.getElementById('adminName').innerHTML = `管理员：<span class="admin-name-display">${username}</span>`;
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('dashboardSection').style.display = 'block';
+        
+        loadSpecsForm();
+        loadJudgesTable();
+    } else {
+        alert('账号或密码错误！');
+    }
+});
+
+// Tab切换
+function switchTab(tabName) {
+    // 更新按钮状态
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    // 更新内容显示
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    
+    if (tabName === 'works') {
+        document.getElementById('worksTab').classList.add('active');
+        loadWorksTable();
+    } else if (tabName === 'specs') {
+        document.getElementById('specsTab').classList.add('active');
+    } else if (tabName === 'judges') {
+        document.getElementById('judgesTab').classList.add('active');
+    } else if (tabName === 'assign') {
+        document.getElementById('assignTab').classList.add('active');
+        loadAssignData();
+    } else if (tabName === 'admin') {
+        document.getElementById('adminTab').classList.add('active');
+    }
+}
+
+// 加载作品规格配置
+function loadSpecsForm() {
+    const specs = JSON.parse(localStorage.getItem('submissionSpecs') || '{}');
+    
+    // 视频配置
+    if (specs.video) {
+        document.getElementById('enableVideo').checked = specs.video.enabled !== false;
+        document.getElementById('videoFormats').value = specs.video.formats || 'MP4';
+        document.getElementById('videoMinWidth').value = specs.video.minWidth || 1920;
+        document.getElementById('videoMinHeight').value = specs.video.minHeight || 1080;
+        document.getElementById('videoMaxDuration').value = specs.video.maxDuration || 180;
+        document.getElementById('videoMaxSize').value = specs.video.maxSize || 100;
+        document.getElementById('videoSubtitleRequired').checked = specs.video.subtitleRequired !== false;
+    }
+    
+    // 图像配置
+    if (specs.image) {
+        document.getElementById('enableImage').checked = specs.image.enabled !== false;
+        document.getElementById('imageFormats').value = specs.image.formats || 'JPG, PNG, JPEG';
+        document.getElementById('imageMinDPI').value = specs.image.minDPI || 300;
+        document.getElementById('imageMinWidth').value = specs.image.minWidth || 2400;
+        document.getElementById('imageMinHeight').value = specs.image.minHeight || 1800;
+        document.getElementById('imageMinSize').value = specs.image.minSize || 5;
+        document.getElementById('imageMaxFiles').value = specs.image.maxFiles || 10;
+    }
+    
+    // 通用配置
+    if (specs.deadline) {
+        document.getElementById('deadline').value = specs.deadline.replace(' ', 'T');
+    }
+    if (specs.maxSubmissionsPerCategory) {
+        document.getElementById('maxSubmissionsPerCategory').value = specs.maxSubmissionsPerCategory;
+    }
+    if (specs.descriptionMinLength) {
+        document.getElementById('descriptionMinLength').value = specs.descriptionMinLength;
+    }
+    
+    // 更新显示状态
+    toggleCategory('video');
+    toggleCategory('image');
+}
+
+// 切换类别显示
+function toggleCategory(category) {
+    if (category === 'video') {
+        const enabled = document.getElementById('enableVideo').checked;
+        document.getElementById('videoConfigSection').style.display = enabled ? 'block' : 'none';
+    } else if (category === 'image') {
+        const enabled = document.getElementById('enableImage').checked;
+        document.getElementById('imageConfigSection').style.display = enabled ? 'block' : 'none';
+    }
+}
+
+// 保存作品规格配置
+document.getElementById('specsForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const specs = {
+        video: {
+            enabled: document.getElementById('enableVideo').checked,
+            formats: document.getElementById('videoFormats').value.split(',').map(s => s.trim()),
+            minWidth: parseInt(document.getElementById('videoMinWidth').value),
+            minHeight: parseInt(document.getElementById('videoMinHeight').value),
+            maxDuration: parseInt(document.getElementById('videoMaxDuration').value),
+            maxSize: parseInt(document.getElementById('videoMaxSize').value),
+            subtitleRequired: document.getElementById('videoSubtitleRequired').checked
+        },
+        image: {
+            enabled: document.getElementById('enableImage').checked,
+            formats: document.getElementById('imageFormats').value.split(',').map(s => s.trim()),
+            minDPI: parseInt(document.getElementById('imageMinDPI').value),
+            minWidth: parseInt(document.getElementById('imageMinWidth').value),
+            minHeight: parseInt(document.getElementById('imageMinHeight').value),
+            minSize: parseInt(document.getElementById('imageMinSize').value),
+            maxFiles: parseInt(document.getElementById('imageMaxFiles').value)
+        },
+        deadline: document.getElementById('deadline').value.replace('T', ' '),
+        maxSubmissionsPerCategory: parseInt(document.getElementById('maxSubmissionsPerCategory').value),
+        descriptionMinLength: parseInt(document.getElementById('descriptionMinLength').value)
+    };
+    
+    localStorage.setItem('submissionSpecs', JSON.stringify(specs));
+    
+    // 触发自定义事件通知其他页面
+    window.dispatchEvent(new CustomEvent('specsUpdated'));
+    
+    alert('✅ 配置已保存！\n\n选手端将立即更新：\n• 作品分类显示\n• 上传规则提示\n• 文件校验标准\n\n请刷新选手端页面查看最新配置。');
+});
+
+// 恢复默认配置
+function resetToDefaults() {
+    if (!confirm('确认恢复所有配置为默认值？')) return;
+    
+    localStorage.removeItem('submissionSpecs');
+    loadSpecsForm();
+    alert('已恢复默认配置！');
+}
+
+// 加载评委列表
+function loadJudgesTable() {
+    const judgesData = localStorage.getItem('judges');
+    let judges = [];
+    
+    try {
+        judges = judgesData ? JSON.parse(judgesData) : [];
+        // 确保是数组
+        if (!Array.isArray(judges)) {
+            console.warn('judges不是数组，重置为空数组');
+            judges = [];
+            localStorage.setItem('judges', '[]');
+        }
+    } catch (e) {
+        console.error('解析judges失败:', e);
+        judges = [];
+        localStorage.setItem('judges', '[]');
+    }
+    
+    const tbody = document.getElementById('judgesTable');
+    
+    if (!tbody) {
+        console.error('找不到judgesTable元素');
+        return;
+    }
+    
+    if (judges.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无评委账号</td></tr>';
+        return;
+    }
+    
+    const assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
+    const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+    
+    // 过滤掉无效数据
+    const validJudges = judges.filter(judge => {
+        if (!judge || !judge.account || !judge.name) {
+            console.warn('发现无效的评委数据:', judge);
+            return false;
+        }
+        return true;
+    });
+    
+    // 如果有无效数据，清理localStorage
+    if (validJudges.length !== judges.length) {
+        console.log(`清理无效数据：${judges.length - validJudges.length}条`);
+        localStorage.setItem('judges', JSON.stringify(validJudges));
+    }
+    
+    if (validJudges.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无评委账号</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = validJudges.map(judge => {
+        const assignedCount = assignments.filter(a => a.judgeAccount === judge.account).length;
+        const scoredCount = judgeScores.filter(s => s.judgeAccount === judge.account).length;
+        
+        return `
+            <tr>
+                <td>${judge.account}</td>
+                <td>${judge.name}</td>
+                <td>${assignedCount}</td>
+                <td>${scoredCount}</td>
+                <td><span class="work-status status-scored">正常</span></td>
+                <td>
+                    <button class="btn-secondary btn-sm" onclick="resetJudgePassword('${judge.account}')">重置密码</button>
+                    <button class="btn-secondary btn-sm" onclick="deleteJudge('${judge.account}')" style="margin-left: 0.5rem;">删除</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+    
+    console.log(`加载评委列表：共${validJudges.length}个评委`);
+}
+
+// 显示添加评委模态框
+function showAddJudgeModal() {
+    document.getElementById('addJudgeModal').style.display = 'flex';
+}
+
+// 关闭添加评委模态框
+function closeAddJudgeModal() {
+    document.getElementById('addJudgeModal').style.display = 'none';
+    document.getElementById('addJudgeForm').reset();
+}
+
+// 添加评委
+document.getElementById('addJudgeForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const account = document.getElementById('judgeAccount').value;
+    const name = document.getElementById('judgeNameInput').value;
+    const password = document.getElementById('judgePasswordInput').value;
+    
+    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
+    
+    // 检查账号是否已存在
+    if (judges.find(j => j.account === account)) {
+        alert('该账号已存在！');
+        return;
+    }
+    
+    judges.push({ account, name, password });
+    localStorage.setItem('judges', JSON.stringify(judges));
+    
+    alert('评委账号创建成功！');
+    closeAddJudgeModal();
+    loadJudgesTable();
+});
+
+// 重置评委密码
+function resetJudgePassword(account) {
+    const newPassword = prompt('请输入新密码：');
+    if (!newPassword) return;
+    
+    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
+    const judge = judges.find(j => j.account === account);
+    
+    if (judge) {
+        judge.password = newPassword;
+        localStorage.setItem('judges', JSON.stringify(judges));
+        alert('密码已重置！');
+    }
+}
+
+// 删除评委
+function deleteJudge(account) {
+    console.log('开始删除评委:', account);
+    
+    const judgesData = localStorage.getItem('judges');
+    let judges = [];
+    
+    try {
+        judges = judgesData ? JSON.parse(judgesData) : [];
+        if (!Array.isArray(judges)) {
+            console.error('judges数据格式错误');
+            judges = [];
+        }
+    } catch (e) {
+        console.error('解析judges失败:', e);
+        alert('数据错误，请刷新页面后重试');
+        return;
+    }
+    
+    // 检查是否只剩最后一个评委
+    if (judges.length <= 1) {
+        alert('⚠️ 至少需要保留一个评委账号！\n\n如需删除所有评委，请先添加新评委后再操作。');
+        return;
+    }
+    
+    // 查找要删除的评委
+    const judgeToDelete = judges.find(j => j.account === account);
+    if (!judgeToDelete) {
+        alert('找不到该评委账号，可能已被删除');
+        loadJudgesTable(); // 刷新列表
+        return;
+    }
+    
+    if (!confirm(`确认删除评委 ${account}（${judgeToDelete.name}）？\n\n此操作将：\n• 删除评委登录账号\n• 清除该评委的所有评分记录\n• 清除相关的作品分配\n\n此操作不可恢复！`)) {
+        return;
+    }
+    
+    // 删除评委账号
+    const updatedJudges = judges.filter(j => j.account !== account);
+    console.log('删除后剩余评委数:', updatedJudges.length);
+    
+    try {
+        localStorage.setItem('judges', JSON.stringify(updatedJudges));
+        
+        // 验证是否保存成功
+        const savedData = localStorage.getItem('judges');
+        const parsed = JSON.parse(savedData);
+        console.log('保存后的数据:', parsed);
+        
+        if (parsed.length !== updatedJudges.length) {
+            throw new Error('保存的数据与预期不符');
+        }
+    } catch (e) {
+        console.error('保存judges失败:', e);
+        alert('保存失败，请重试');
+        return;
+    }
+    
+    // 清除该评委的评分记录
+    let judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+    const beforeScores = judgeScores.length;
+    judgeScores = judgeScores.filter(s => s.judgeAccount !== account);
+    localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
+    console.log(`清除评分记录: ${beforeScores} -> ${judgeScores.length}`);
+    
+    // 清除相关的作品分配
+    let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
+    const beforeAssignments = assignments.length;
+    assignments = assignments.filter(a => a.judgeAccount !== account);
+    localStorage.setItem('assignments', JSON.stringify(assignments));
+    console.log(`清除分配记录: ${beforeAssignments} -> ${assignments.length}`);
+    
+    alert(`✅ 评委 ${account}（${judgeToDelete.name}）已删除！\n\n同时已清理：\n• ${beforeScores - judgeScores.length} 条评分记录\n• ${beforeAssignments - assignments.length} 条分配记录`);
+    
+    // 强制刷新列表
+    setTimeout(() => {
+        loadJudgesTable();
+    }, 100);
+}
+
+// 清空所有评委
+function clearAllJudges() {
+    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
+    
+    if (judges.length === 0) {
+        alert('当前没有评委账号');
+        return;
+    }
+    
+    if (!confirm(`⚠️ 警告：即将清空所有评委账号（共${judges.length}个）！\n\n此操作将：\n• 删除所有评委登录账号\n• 清除所有评分记录\n• 清除所有作品分配关系\n\n此操作不可恢复！确认继续吗？`)) {
+        return;
+    }
+    
+    // 二次确认
+    const confirmText = prompt(`请输入 "DELETE" 确认清空所有评委：`);
+    if (confirmText !== 'DELETE') {
+        alert('已取消操作');
+        return;
+    }
+    
+    // 清空所有评委数据
+    localStorage.setItem('judges', '[]');
+    localStorage.setItem('judgeScores', '[]');
+    localStorage.setItem('assignments', '[]');
+    
+    alert('✅ 已清空所有评委及相关数据！\n\n您可以重新添加评委账号。');
+    loadJudgesTable();
+}
+
+// 调试：查看评委数据
+function debugJudgesData() {
+    const judgesData = localStorage.getItem('judges');
+    const assignmentsData = localStorage.getItem('assignments');
+    const scoresData = localStorage.getItem('judgeScores');
+    
+    let judges = [];
+    try {
+        judges = judgesData ? JSON.parse(judgesData) : [];
+    } catch (e) {
+        judges = '解析失败: ' + e.message;
+    }
+    
+    let assignments = [];
+    try {
+        assignments = assignmentsData ? JSON.parse(assignmentsData) : [];
+    } catch (e) {
+        assignments = '解析失败';
+    }
+    
+    let scores = [];
+    try {
+        scores = scoresData ? JSON.parse(scoresData) : [];
+    } catch (e) {
+        scores = '解析失败';
+    }
+    
+    const debugInfo = `
+=== 评委数据调试 ===
+
+【评委列表】(localStorage.judges)
+原始数据: ${judgesData}
+解析结果: ${JSON.stringify(judges, null, 2)}
+
+【分配记录】(${assignments.length}条)
+${JSON.stringify(assignments, null, 2)}
+
+【评分记录】(${scores.length}条)
+${JSON.stringify(scores.slice(0, 3), null, 2)}${scores.length > 3 ? '\n... 还有' + (scores.length - 3) + '条' : ''}
+    `.trim();
+    
+    console.log(debugInfo);
+    alert('调试信息已输出到控制台\n按F12打开开发者工具查看Console标签');
+}
+
+// 管理员设置
+document.getElementById('adminSettingsForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const currentPassword = document.getElementById('currentAdminPassword').value;
+    const newUsername = document.getElementById('newAdminUsername').value;
+    const newPassword = document.getElementById('newAdminPassword').value;
+    const confirmPassword = document.getElementById('confirmNewPassword').value;
+    
+    const adminConfig = JSON.parse(localStorage.getItem('adminConfig') || '{"account":"admin","password":"admin123"}');
+    
+    // 验证当前密码
+    if (currentPassword !== adminConfig.password) {
+        alert('当前密码错误！');
+        return;
+    }
+    
+    // 验证新密码
+    if (newPassword && newPassword !== confirmPassword) {
+        alert('两次输入的新密码不一致！');
+        return;
+    }
+    
+    // 更新配置
+    const newConfig = {
+        account: newUsername || adminConfig.account,
+        password: newPassword || adminConfig.password
+    };
+    
+    localStorage.setItem('adminConfig', JSON.stringify(newConfig));
+    
+    alert('设置已更新！请使用新账号密码重新登录。');
+    logout();
+});
+
+// 退出登录
+function logout() {
+    location.href = 'index.html';
+}
+
+// ========== 作品管理功能 ==========
+
+// 加载作品列表
+function loadWorksTable() {
+    const works = JSON.parse(localStorage.getItem('works') || '[]');
+    const tbody = document.getElementById('worksTable');
+    
+    // 更新统计
+    const total = works.length;
+    const pending = works.filter(w => w.status === '待审核').length;
+    const approved = works.filter(w => w.status === '已通过').length;
+    const rejected = works.filter(w => w.status === '已驳回').length;
+    document.getElementById('worksStats').textContent = `总计: ${total} | 待审核: ${pending} | 已通过: ${approved} | 已驳回: ${rejected}`;
+    
+    if (works.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无作品</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = works.map(work => {
+        const statusClass = work.status === '已通过' ? 'status-scored' : 
+                           work.status === '已驳回' ? 'status-pending' : 'status-pending';
+        
+        return `
+            <tr>
+                <td><input type="checkbox" class="work-checkbox" value="${work.id}" data-title="${work.title}"></td>
+                <td>${work.submitTime || '-'}</td>
+                <td>${work.title}</td>
+                <td>${getCategoryName(work.category)}</td>
+                <td>${work.author}</td>
+                <td>${work.school}</td>
+                <td><span class="work-status ${statusClass}">${work.status}</span></td>
+                <td>
+                    <button class="btn-secondary btn-sm" onclick="viewWorkDetail('${work.id}')">查看</button>
+                    ${work.status === '待审核' ? `
+                        <button class="btn-primary btn-sm" onclick="approveWork('${work.id}')" style="margin-left: 0.5rem;">通过</button>
+                        <button class="btn-secondary btn-sm" onclick="rejectWork('${work.id}')" style="margin-left: 0.5rem;">驳回</button>
+                    ` : ''}
+                    <button class="btn-secondary btn-sm" onclick="deleteSingleWork('${work.id}')" style="margin-left: 0.5rem; background: var(--danger);">删除</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// 切换全选
+function toggleSelectAll(checked) {
+    document.querySelectorAll('.work-checkbox').forEach(cb => {
+        cb.checked = checked;
+    });
+}
+
+// 全选
+function selectAllWorksInTable() {
+    document.querySelectorAll('.work-checkbox').forEach(cb => cb.checked = true);
+    document.getElementById('selectAllCheckbox').checked = true;
+}
+
+// 取消全选
+function deselectAllWorksInTable() {
+    document.querySelectorAll('.work-checkbox').forEach(cb => cb.checked = false);
+    document.getElementById('selectAllCheckbox').checked = false;
+}
+
+// 批量删除作品
+function batchDeleteWorks() {
+    const selectedCheckboxes = document.querySelectorAll('.work-checkbox:checked');
+    
+    if (selectedCheckboxes.length === 0) {
+        alert('请先选择要删除的作品');
+        return;
+    }
+    
+    const workIds = Array.from(selectedCheckboxes).map(cb => cb.value);
+    const workTitles = Array.from(selectedCheckboxes).map(cb => cb.dataset.title);
+    
+    if (!confirm(`确认删除以下 ${workIds.length} 个作品？\n\n${workTitles.slice(0, 5).join('\n')}${workTitles.length > 5 ? '\n...' : ''}\n\n此操作将：\n• 删除作品信息\n• 清除相关评分记录\n• 清除相关分配关系\n\n此操作不可恢复！`)) {
+        return;
+    }
+    
+    // 删除作品
+    let works = JSON.parse(localStorage.getItem('works') || '[]');
+    works = works.filter(w => !workIds.includes(w.id));
+    localStorage.setItem('works', JSON.stringify(works));
+    
+    // 删除提交记录
+    let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+    submissions = submissions.filter(s => !workIds.includes(s.id));
+    localStorage.setItem('submissions', JSON.stringify(submissions));
+    
+    // 删除评分记录
+    let judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+    judgeScores = judgeScores.filter(s => !workIds.includes(s.workId));
+    localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
+    
+    // 删除分配关系
+    let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
+    assignments = assignments.filter(a => !workIds.includes(a.workId));
+    localStorage.setItem('assignments', JSON.stringify(assignments));
+    
+    alert(`✅ 已成功删除 ${workIds.length} 个作品及相关数据！`);
+    
+    // 刷新列表
+    document.getElementById('selectAllCheckbox').checked = false;
+    loadWorksTable();
+}
+
+// 删除单个作品
+function deleteSingleWork(workId) {
+    const works = JSON.parse(localStorage.getItem('works') || '[]');
+    const work = works.find(w => w.id === workId);
+    
+    if (!work) {
+        alert('作品不存在');
+        return;
+    }
+    
+    if (!confirm(`确认删除作品"${work.title}"？\n\n此操作不可恢复！`)) {
+        return;
+    }
+    
+    // 删除作品
+    let updatedWorks = works.filter(w => w.id !== workId);
+    localStorage.setItem('works', JSON.stringify(updatedWorks));
+    
+    // 删除提交记录
+    let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+    submissions = submissions.filter(s => s.id !== workId);
+    localStorage.setItem('submissions', JSON.stringify(submissions));
+    
+    // 删除评分记录
+    let judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+    judgeScores = judgeScores.filter(s => s.workId !== workId);
+    localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
+    
+    // 删除分配关系
+    let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
+    assignments = assignments.filter(a => a.workId !== workId);
+    localStorage.setItem('assignments', JSON.stringify(assignments));
+    
+    alert('作品已删除！');
+    loadWorksTable();
+}
+
+function getCategoryName(value) {
+    const categories = {
+        'visual': '视觉艺术',
+        'text': '文本创作',
+        'audio': '音频生成',
+        'video': '视频制作'
+    };
+    return categories[value] || value;
+}
+
+// 查看作品详情
+function viewWorkDetail(workId) {
+    const works = JSON.parse(localStorage.getItem('works') || '[]');
+    const work = works.find(w => w.id === workId);
+    
+    if (!work) {
+        alert('作品不存在');
+        return;
+    }
+    
+    const detail = `
+作品标题：${work.title}
+作者：${work.author}
+学校：${work.school}
+分类：${getCategoryName(work.category)}
+描述：${work.description || '无'}
+文件：${(work.files || []).join(', ')}
+状态：${work.status}
+提交时间：${work.submitTime || '-'}
+    `.trim();
+    
+    alert(detail);
+}
+
+// 通过作品
+function approveWork(workId) {
+    if (!confirm('确认通过该作品？')) return;
+    
+    let works = JSON.parse(localStorage.getItem('works') || '[]');
+    const work = works.find(w => w.id === workId);
+    
+    if (work) {
+        work.status = '已通过';
+        localStorage.setItem('works', JSON.stringify(works));
+        
+        // 同时更新提交记录
+        let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+        const sub = submissions.find(s => s.id === workId);
+        if (sub) {
+            sub.status = '已通过';
+            localStorage.setItem('submissions', JSON.stringify(submissions));
+        }
+        
+        alert('作品已通过审核！');
+        loadWorksTable();
+    }
+}
+
+// 驳回作品
+function rejectWork(workId) {
+    const reason = prompt('请输入驳回理由：');
+    if (!reason) return;
+    
+    let works = JSON.parse(localStorage.getItem('works') || '[]');
+    const work = works.find(w => w.id === workId);
+    
+    if (work) {
+        work.status = '已驳回';
+        work.rejectReason = reason;
+        localStorage.setItem('works', JSON.stringify(works));
+        
+        // 同时更新提交记录
+        let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+        const sub = submissions.find(s => s.id === workId);
+        if (sub) {
+            sub.status = '已驳回';
+            sub.rejectReason = reason;
+            localStorage.setItem('submissions', JSON.stringify(submissions));
+        }
+        
+        alert('作品已驳回！');
+        loadWorksTable();
+    }
+}
+
+// ========== 作品分配功能 ==========
+
+// 加载分配数据
+function loadAssignData() {
+    loadAssignWorkSelect();
+    loadAssignJudgeList();
+    loadAssignmentsTable();
+}
+
+// 加载作品选择下拉框
+function loadAssignWorkSelect() {
+    const works = JSON.parse(localStorage.getItem('works') || '[]');
+    const approvedWorks = works.filter(w => w.status === '已通过');
+    
+    const container = document.getElementById('assignWorkList');
+    
+    if (approvedWorks.length === 0) {
+        container.innerHTML = '<div class="empty-state">暂无已通过的作品</div>';
+        return;
+    }
+    
+    container.innerHTML = approvedWorks.map(work => `
+        <label>
+            <input type="checkbox" name="assignWorks" value="${work.id}">
+            ${work.title} - ${work.author} (${getCategoryName(work.category)})
+        </label>
+    `).join('');
+}
+
+// 全选作品
+function selectAllWorks() {
+    document.querySelectorAll('input[name="assignWorks"]').forEach(cb => cb.checked = true);
+}
+
+// 取消全选
+function deselectAllWorks() {
+    document.querySelectorAll('input[name="assignWorks"]').forEach(cb => cb.checked = false);
+}
+
+// 加载评委列表
+function loadAssignJudgeList() {
+    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
+    const container = document.getElementById('assignJudgeList');
+    
+    if (judges.length === 0) {
+        container.innerHTML = '<div class="empty-state">暂无评委账号，请先添加评委</div>';
+        return;
+    }
+    
+    container.innerHTML = judges.map(judge => `
+        <label>
+            <input type="checkbox" name="assignJudges" value="${judge.account}">
+            ${judge.name} (${judge.account})
+        </label>
+    `).join('');
+}
+
+// 分配作品（支持批量）
+function assignWorks() {
+    const selectedWorkIds = Array.from(document.querySelectorAll('input[name="assignWorks"]:checked'))
+        .map(cb => cb.value);
+    const selectedJudges = Array.from(document.querySelectorAll('input[name="assignJudges"]:checked'))
+        .map(cb => cb.value);
+    
+    if (selectedWorkIds.length === 0) {
+        alert('请至少选择一个作品');
+        return;
+    }
+    
+    if (selectedJudges.length === 0) {
+        alert('请至少选择一个评委');
+        return;
+    }
+    
+    let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
+    let addedCount = 0;
+    
+    // 批量添加分配关系
+    selectedWorkIds.forEach(workId => {
+        selectedJudges.forEach(judgeAccount => {
+            const exists = assignments.find(a => a.workId === workId && a.judgeAccount === judgeAccount);
+            if (!exists) {
+                assignments.push({ workId, judgeAccount });
+                addedCount++;
+            }
+        });
+    });
+    
+    localStorage.setItem('assignments', JSON.stringify(assignments));
+    alert(`成功添加 ${addedCount} 条分配记录！\n${selectedWorkIds.length} 个作品分配给 ${selectedJudges.length} 位评委`);
+    
+    // 清空选择
+    document.querySelectorAll('input[name="assignWorks"]').forEach(cb => cb.checked = false);
+    document.querySelectorAll('input[name="assignJudges"]').forEach(cb => cb.checked = false);
+    
+    loadAssignmentsTable();
+}
+
+// 加载分配情况表格
+function loadAssignmentsTable() {
+    const assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
+    const works = JSON.parse(localStorage.getItem('works') || '[]');
+    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
+    const tbody = document.getElementById('assignmentsTable');
+    
+    if (assignments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="empty-state">暂无分配记录</td></tr>';
+        return;
+    }
+    
+    // 按作品分组
+    const workGroups = {};
+    assignments.forEach(a => {
+        if (!workGroups[a.workId]) {
+            workGroups[a.workId] = [];
+        }
+        workGroups[a.workId].push(a.judgeAccount);
+    });
+    
+    tbody.innerHTML = Object.keys(workGroups).map(workId => {
+        const work = works.find(w => w.id === workId);
+        const judgeAccounts = workGroups[workId];
+        const judgeNames = judgeAccounts.map(acc => {
+            const judge = judges.find(j => j.account === acc);
+            return judge ? judge.name : acc;
+        }).join(', ');
+        
+        return `
+            <tr>
+                <td>${work ? work.title : workId}</td>
+                <td>${judgeNames}</td>
+                <td>
+                    <button class="btn-secondary btn-sm" onclick="clearAssignment('${workId}')">清除分配</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// 清除作品的所有分配
+function clearAssignment(workId) {
+    if (!confirm('确认清除该作品的所有分配？')) return;
+    
+    let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
+    assignments = assignments.filter(a => a.workId !== workId);
+    localStorage.setItem('assignments', JSON.stringify(assignments));
+    
+    alert('分配已清除！');
+    loadAssignmentsTable();
+}
+
+// ========== 实时评分查看 ==========
+
+// 加载实时评分数据
+function loadScoresData() {
+    const works = JSON.parse(localStorage.getItem('works') || '[]');
+    const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
+    const tbody = document.getElementById('scoresTable');
+    
+    if (judgeScores.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无评分记录</td></tr>';
+        return;
+    }
+    
+    // 按作品和评委展开显示
+    const rows = [];
+    judgeScores.forEach(score => {
+        const work = works.find(w => w.id === score.workId);
+        const judge = judges.find(j => j.account === score.judgeAccount);
+        
+        if (work && judge) {
+            rows.push({
+                workTitle: work.title,
+                category: getCategoryName(work.category),
+                author: work.author,
+                judgeName: judge.name,
+                totalScore: score.totalScore,
+                saveTime: score.saveTime,
+                status: '已完成'
+            });
+        }
+    });
+    
+    tbody.innerHTML = rows.map(row => `
+        <tr>
+            <td>${row.workTitle}</td>
+            <td>${row.category}</td>
+            <td>${row.author}</td>
+            <td>${row.judgeName}</td>
+            <td><strong style="color: var(--primary); font-size: 1.2rem;">${row.totalScore.toFixed(1)}</strong></td>
+            <td>${row.saveTime}</td>
+            <td><span class="work-status status-scored">${row.status}</span></td>
+        </tr>
+    `).join('');
+}
+
+// 刷新评分数据
+function refreshScores() {
+    loadScoresData();
+    alert('数据已刷新！');
+}
+
+// ========== 排名导出 ==========
+
+// 生成排名
+function generateRanking() {
+    const works = JSON.parse(localStorage.getItem('works') || '[]');
+    const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+    const category = document.getElementById('exportCategory').value;
+    const sortBy = document.getElementById('sortBy').value;
+    
+    // 过滤作品
+    let filteredWorks = works.filter(w => w.status === '已通过');
+    if (category !== 'all') {
+        filteredWorks = filteredWorks.filter(w => w.category === category);
+    }
+    
+    // 计算每个作品的平均分（去掉最高分和最低分后平均）
+    const rankedWorks = filteredWorks.map(work => {
+        const scores = judgeScores
+            .filter(s => s.workId === work.id)
+            .map(s => s.totalScore);
+        
+        let avgScore = 0;
+        if (scores.length > 0) {
+            if (scores.length >= 3) {
+                // 去掉最高分和最低分
+                scores.sort((a, b) => a - b);
+                const trimmed = scores.slice(1, -1);
+                avgScore = trimmed.reduce((sum, s) => sum + s, 0) / trimmed.length;
+            } else {
+                avgScore = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+            }
+        }
+        
+        return {
+            ...work,
+            avgScore: avgScore,
+            scoreCount: scores.length,
+            scores: scores
+        };
+    });
+    
+    // 排序
+    if (sortBy === 'totalDesc') {
+        rankedWorks.sort((a, b) => b.avgScore - a.avgScore);
+    } else if (sortBy === 'totalAsc') {
+        rankedWorks.sort((a, b) => a.avgScore - b.avgScore);
+    } else if (sortBy === 'timeDesc') {
+        rankedWorks.sort((a, b) => new Date(b.submitTime) - new Date(a.submitTime));
+    }
+    
+    // 添加排名
+    rankedWorks.forEach((work, index) => {
+        work.rank = index + 1;
+    });
+    
+    // 显示结果
+    displayRanking(rankedWorks);
+    
+    // 保存到全局变量供导出使用
+    window.currentRanking = rankedWorks;
+}
+
+// 显示排名结果
+function displayRanking(rankedWorks) {
+    const container = document.getElementById('rankingResult');
+    
+    if (rankedWorks.length === 0) {
+        container.innerHTML = '<div class="empty-state">没有符合条件的作品</div>';
+        return;
+    }
+    
+    container.innerHTML = `
+        <h4>排名结果（共 ${rankedWorks.length} 个作品）</h4>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>排名</th>
+                        <th>作品标题</th>
+                        <th>分类</th>
+                        <th>作者</th>
+                        <th>学校</th>
+                        <th>平均分</th>
+                        <th>评分人数</th>
+                        <th>提交时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rankedWorks.map((work, index) => `
+                        <tr style="${index < 3 ? 'background: rgba(99, 102, 241, 0.1);' : ''}">
+                            <td><strong style="color: ${index < 3 ? 'var(--accent)' : 'inherit'}; font-size: ${index < 3 ? '1.3rem' : '1rem'};">${work.rank}</strong></td>
+                            <td>${work.title}</td>
+                            <td>${getCategoryName(work.category)}</td>
+                            <td>${work.author}</td>
+                            <td>${work.school}</td>
+                            <td><strong style="color: var(--primary);">${work.avgScore.toFixed(2)}</strong></td>
+                            <td>${work.scoreCount}人</td>
+                            <td>${work.submitTime || '-'}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+// 导出Excel
+function exportToExcel() {
+    if (!window.currentRanking || window.currentRanking.length === 0) {
+        alert('请先生成排名！');
+        return;
+    }
+    
+    // 创建CSV内容
+    const headers = ['排名', '作品标题', '分类', '作者', '学校', '平均分', '评分人数', '提交时间'];
+    const rows = window.currentRanking.map(work => [
+        work.rank,
+        work.title,
+        getCategoryName(work.category),
+        work.author,
+        work.school,
+        work.avgScore.toFixed(2),
+        work.scoreCount,
+        work.submitTime || ''
+    ]);
+    
+    // 添加BOM以支持中文
+    let csvContent = '\uFEFF';
+    csvContent += headers.join(',') + '\n';
+    rows.forEach(row => {
+        csvContent += row.map(cell => `"${cell}"`).join(',') + '\n';
+    });
+    
+    // 创建下载链接
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    const timestamp = new Date().toISOString().slice(0, 10);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `AIGC大赛排名_${timestamp}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    alert('排名数据已导出为CSV文件！');
+}
+
+// 更新Tab切换函数，添加新的tab
+const originalSwitchTab = switchTab;
+switchTab = function(tabName) {
+    // 更新按钮状态
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    // 更新内容显示
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    
+    if (tabName === 'works') {
+        document.getElementById('worksTab').classList.add('active');
+        loadWorksTable();
+    } else if (tabName === 'specs') {
+        document.getElementById('specsTab').classList.add('active');
+    } else if (tabName === 'judges') {
+        document.getElementById('judgesTab').classList.add('active');
+    } else if (tabName === 'assign') {
+        document.getElementById('assignTab').classList.add('active');
+        loadAssignData();
+    } else if (tabName === 'scores') {
+        document.getElementById('scoresTab').classList.add('active');
+        loadScoresData();
+    } else if (tabName === 'ranking') {
+        document.getElementById('rankingTab').classList.add('active');
+    } else if (tabName === 'admin') {
+        document.getElementById('adminTab').classList.add('active');
+    }
+};
+
+// 初始化默认数据
+window.addEventListener('load', () => {
+    // 初始化管理员配置
+    if (!localStorage.getItem('adminConfig')) {
+        localStorage.setItem('adminConfig', JSON.stringify({
+            account: 'admin',
+            password: 'admin123'
+        }));
+    }
+    
+    // 初始化作品规格
+    if (!localStorage.getItem('submissionSpecs')) {
+        localStorage.setItem('submissionSpecs', JSON.stringify({
+            categories: ['视觉艺术', '文本创作', '音频生成', '视频制作'],
+            formats: 'JPG, PNG, MP4, PDF, DOCX',
+            maxFileSize: 50,
+            deadline: '2026-12-31 23:59',
+            maxSubmissions: 1,
+            descriptionMinLength: 50,
+            maxFilesPerSubmission: 5
+        }));
+    }
+    
+    // 初始化评分项配置
+    if (!localStorage.getItem('scoringItems')) {
+        localStorage.setItem('scoringItems', JSON.stringify([
+            {name: '创意性', maxScore: 10},
+            {name: '完成度', maxScore: 10},
+            {name: '表现力', maxScore: 10},
+            {name: '契合度', maxScore: 10}
+        ]));
+    }
+    
+    // 初始化评委数据（仅在完全没有数据时）
+    const existingJudges = localStorage.getItem('judges');
+    if (!existingJudges) {
+        localStorage.setItem('judges', JSON.stringify([
+            { account: 'judge1', name: '张评委', password: 'judge123' },
+            { account: 'judge2', name: '李评委', password: 'judge123' }
+        ]));
+    }
+    
+    // 创建示例作品（用于测试）
+    if (!localStorage.getItem('works')) {
+        localStorage.setItem('works', JSON.stringify([
+            {
+                id: 'work1',
+                title: 'AI创意作品A',
+                category: 'visual',
+                school: '清华大学',
+                author: '张三',
+                description: '这是一幅使用AI生成的数字艺术作品，展现了未来城市的想象。',
+                files: ['artwork.jpg']
+            },
+            {
+                id: 'work2',
+                title: '智能诗歌集',
+                category: 'text',
+                school: '北京大学',
+                author: '李四',
+                description: '使用AI辅助创作的现代诗集，包含20首原创诗歌。',
+                files: ['poems.pdf']
+            },
+            {
+                id: 'work3',
+                title: '电子音乐作品',
+                category: 'audio',
+                school: '中央音乐学院',
+                author: '王五',
+                description: 'AI生成的电子音乐作品，融合了古典与现代元素。',
+                files: ['music.mp3']
+            }
+        ]));
+    }
+    
+    // 创建示例分配
+    if (!localStorage.getItem('assignments')) {
+        localStorage.setItem('assignments', JSON.stringify([
+            { workId: 'work1', judgeAccount: 'judge1' },
+            { workId: 'work2', judgeAccount: 'judge1' },
+            { workId: 'work3', judgeAccount: 'judge2' }
+        ]));
+    }
+});

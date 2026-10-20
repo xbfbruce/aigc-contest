@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试数据生成器</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #6366f1;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 1rem 0;
+            width: 100%;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
+        }
+        .info {
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        .success {
+            color: #10b981;
+        }
+        pre {
+            background: rgba(30, 41, 59, 0.8);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 测试数据生成器</h1>
+        
+        <div class="info">
+            <h3>使用说明</h3>
+            <p>点击以下按钮快速生成测试数据，用于测试三端口系统的完整流程。</p>
+        </div>
+
+        <button onclick="generateTestData()">生成测试作品和分配</button>
+        <button onclick="clearAllData()" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);">清空所有数据</button>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        function generateTestData() {
+            // 生成测试作品（符合新的分类要求）
+            const works = [
+                {
+                    id: 'test_video_1',
+                    title: '未来城市2050',
+                    category: 'video',
+                    school: '北京电影学院',
+                    author: '张三',
+                    description: '使用AI生成的未来城市场景视频，时长2分30秒，分辨率1920×1080，包含中文字幕。展现了智能交通、垂直农场、空中花园等未来元素。',
+                    files: [{name: 'future_city.mp4', size: 85*1024*1024, metadata: {width: 1920, height: 1080, duration: '150.00'}}],
+                    submitTime: new Date().toLocaleString('zh-CN'),
+                    status: '已通过'
+                },
+                {
+                    id: 'test_video_2',
+                    title: 'AI艺术创作过程',
+                    category: 'video',
+                    school: '中国传媒大学',
+                    author: '李四',
+                    description: '记录使用Midjourney和Runway进行艺术创作的全过程，时长2分钟，1080P高清，附中文字幕解说。',
+                    files: [{name: 'creation_process.mp4', size: 72*1024*1024, metadata: {width: 1920, height: 1080, duration: '120.50'}}],
+                    submitTime: new Date().toLocaleString('zh-CN'),
+                    status: '已通过'
+                },
+                {
+                    id: 'test_image_1',
+                    title: '数字山水系列',
+                    category: 'image',
+                    school: '中央美术学院',
+                    author: '王五',
+                    description: '使用Stable Diffusion生成的中国传统山水画系列，共5张高清图，每张分辨率4000×3000，DPI 300+，单张大小约8MB。',
+                    files: [
+                        {name: 'landscape_01.jpg', size: 8.2*1024*1024, metadata: {width: 4000, height: 3000}},
+                        {name: 'landscape_02.jpg', size: 7.8*1024*1024, metadata: {width: 4000, height: 3000}},
+                        {name: 'landscape_03.jpg', size: 8.5*1024*1024, metadata: {width: 4000, height: 3000}}
+                    ],
+                    submitTime: new Date().toLocaleString('zh-CN'),
+                    status: '已通过'
+                },
+                {
+                    id: 'test_image_2',
+                    title: '科幻概念设计组图',
+                    category: 'image',
+                    school: '清华大学美术学院',
+                    author: '赵六',
+                    description: '科幻题材的概念设计图，包含角色设计、场景设计、道具设计等共8张图片，均为PNG格式，高分辨率。',
+                    files: [
+                        {name: 'character_design.png', size: 12*1024*1024, metadata: {width: 5000, height: 4000}},
+                        {name: 'scene_concept.png', size: 15*1024*1024, metadata: {width: 6000, height: 4000}}
+                    ],
+                    submitTime: new Date().toLocaleString('zh-CN'),
+                    status: '已通过'
+                }
+            ];
+
+            // 保存到works
+            localStorage.setItem('works', JSON.stringify(works));
+
+            // 同时保存到submissions
+            const submissions = works.map(w => ({
+                id: w.id,
+                name: w.author,
+                school: w.school,
+                email: `${w.author}@example.com`,
+                phone: '138****1234',
+                category: w.category,
+                title: w.title,
+                workTitle: w.title,
+                description: w.description,
+                files: w.files,
+                submitTime: w.submitTime,
+                status: w.status
+            }));
+            localStorage.setItem('submissions', JSON.stringify(submissions));
+
+            // 创建分配关系
+            const assignments = [
+                // judge1分配所有作品
+                { workId: 'test_video_1', judgeAccount: 'judge1' },
+                { workId: 'test_video_2', judgeAccount: 'judge1' },
+                { workId: 'test_image_1', judgeAccount: 'judge1' },
+                { workId: 'test_image_2', judgeAccount: 'judge1' },
+                // judge2分配部分作品
+                { workId: 'test_video_1', judgeAccount: 'judge2' },
+                { workId: 'test_image_1', judgeAccount: 'judge2' },
+                { workId: 'test_image_2', judgeAccount: 'judge2' }
+            ];
+            localStorage.setItem('assignments', JSON.stringify(assignments));
+
+            // 显示结果
+            document.getElementById('result').innerHTML = `
+                <div class="info">
+                    <h3 class="success">✅ 测试数据生成成功！</h3>
+                    <p><strong>已创建：</strong></p>
+                    <ul>
+                        <li>2个视频作品（MP4，1920×1080，≤3分钟）</li>
+                        <li>2个图像作品（JPG/PNG，≥300DPI，≥5MB）</li>
+                        <li>4个提交记录</li>
+                        <li>7个分配关系</li>
+                    </ul>
+                    <p><strong>分配情况：</strong></p>
+                    <ul>
+                        <li>评委1 (judge1)：4个作品（全部）</li>
+                        <li>评委2 (judge2)：3个作品</li>
+                    </ul>
+                    <p><strong>测试步骤：</strong></p>
+                    <ol>
+                        <li>打开评委端，使用 judge1/judge123 登录</li>
+                        <li>应该能看到4个作品（2视频+2图像）</li>
+                        <li>点击作品可以查看详细信息并打分</li>
+                        <li>管理端可以实时查看评分情况</li>
+                        <li>可以导出排名为CSV文件</li>
+                    </ol>
+                </div>
+            `;
+        }
+
+        function clearAllData() {
+            if (!confirm('确认清空所有数据？此操作不可恢复！')) return;
+            
+            localStorage.removeItem('works');
+            localStorage.removeItem('submissions');
+            localStorage.removeItem('assignments');
+            localStorage.removeItem('judgeScores');
+            localStorage.removeItem('judges');
+            localStorage.removeItem('adminConfig');
+            localStorage.removeItem('submissionSpecs');
+            localStorage.removeItem('scoringItems');
+            
+            document.getElementById('result').innerHTML = `
+                <div class="info">
+                    <h3 class="success">✅ 所有数据已清空！</h3>
+                    <p>刷新页面后将重新初始化默认数据。</p>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

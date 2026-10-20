@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>评委端 - 作品评审</title>
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+    <nav class="top-nav">
+        <div class="nav-brand">
+            <a href="index.html">◆ 千问 AIGC 大赛</a>
+        </div>
+        <div class="nav-info">
+            <span id="judgeName">评委：<span class="judge-name-display">未登录</span></span>
+            <button onclick="logout()" class="logout-btn">退出登录</button>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <div class="container">
+            <!-- 登录区域 -->
+            <section id="loginSection" class="login-section">
+                <h2>评委登录</h2>
+                <form id="judgeLoginForm" class="login-form">
+                    <div class="form-group">
+                        <label for="judgeUsername">账号</label>
+                        <input type="text" id="judgeUsername" required placeholder="请输入评委账号">
+                    </div>
+                    <div class="form-group">
+                        <label for="judgePassword">密码</label>
+                        <input type="password" id="judgePassword" required placeholder="请输入密码">
+                    </div>
+                    <button type="submit" class="btn-primary">登录</button>
+                </form>
+            </section>
+
+            <!-- 评审工作台（登录后显示） -->
+            <section id="workbenchSection" class="workbench-section" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-info">
+                        <span>评审进度</span>
+                        <span id="progressText">0 / 0 已完成</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <h2>待评审作品列表</h2>
+                
+                <div class="works-list" id="worksList">
+                    <div class="empty-state">暂无分配的作品</div>
+                </div>
+
+                <!-- 打分面板 -->
+                <div id="scoringPanel" class="scoring-panel" style="display: none;">
+                    <div class="panel-header">
+                        <button onclick="closeScoringPanel()" class="back-btn">← 返回列表</button>
+                        <h3 id="scoringWorkTitle">作品打分</h3>
+                    </div>
+
+                    <div class="work-detail">
+                        <div class="work-info-card">
+                            <h4>作品信息</h4>
+                            <div class="info-grid">
+                                <div><strong>标题：</strong><span id="detailTitle">-</span></div>
+                                <div><strong>分类：</strong><span id="detailCategory">-</span></div>
+                                <div><strong>作者：</strong><span id="detailAuthor">匿名</span></div>
+                                <div><strong>学校：</strong><span id="detailSchool">-</span></div>
+                            </div>
+                            <div class="work-description">
+                                <strong>作品描述：</strong>
+                                <p id="detailDescription">-</p>
+                            </div>
+                            <div class="work-files">
+                                <strong>附件文件：</strong>
+                                <div id="detailFiles" class="file-links"></div>
+                            </div>
+                        </div>
+
+                        <div class="scoring-form">
+                            <h4>评分项目</h4>
+                            <div id="scoringItems">
+                                <!-- 动态生成评分项 -->
+                            </div>
+
+                            <div class="total-score-display">
+                                <span>总分：</span>
+                                <span class="score-value" id="totalScore">0.0</span>
+                                <span class="score-max">/ <span id="maxScore">40</span></span>
+                            </div>
+
+                            <div class="scoring-actions">
+                                <button onclick="saveScore()" class="btn-secondary">暂存评分</button>
+                                <button onclick="submitScore()" class="btn-primary">提交评分</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- 图片预览模态框 -->
+    <div id="imagePreviewModal" class="modal" style="display: none;" onclick="closeImagePreview()">
+        <div class="modal-content image-preview-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 id="previewImageTitle">图片预览</h3>
+                <button onclick="closeImagePreview()" class="close-btn">×</button>
+            </div>
+            <div class="preview-container">
+                <img id="previewImage" src="" alt="预览图片">
+                <div class="preview-info" id="previewImageInfo"></div>
+            </div>
+            <div class="preview-actions">
+                <button onclick="prevImage()" class="btn-secondary">← 上一张</button>
+                <span id="imageCounter" style="color: var(--text-secondary);"></span>
+                <button onclick="nextImage()" class="btn-secondary">下一张 →</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="storage-adapter.js"></script>
+    <script src="judge.js"></script>
+    <script src="background.js"></script>
+</body>
+</html>
