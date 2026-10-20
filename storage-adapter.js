@@ -91,6 +91,10 @@ class StorageAdapter {
             if (filters.category) query = query.eq('category', filters.category);
             if (filters.status) query = query.eq('status', filters.status);
             if (filters.contestant_id) query = query.eq('contestant_id', filters.contestant_id);
+            if (filters.contestant_name) {
+                // 按选手姓名查询,需要join contestants表
+                query = query.eq('contestants.name', filters.contestant_name);
+            }
             
             query = query.order('submit_time', { ascending: false });
             

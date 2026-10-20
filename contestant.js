@@ -553,3 +553,203 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// ============================================
+// 选手登录和验证系统
+// ============================================
+
+let currentContestant = null; // 当前登录的选手信息
+
+// 加载预录入选手名单
+async function loadContestantList() {
+    try {
+        console.log('📋 加载选手名单...');
+        const response = await fetch('contestants.json');
+        if (!response.ok) {
+            throw new Error('无法加载选手名单');
+        }
+        
+        const data = await response.json();
+        const contestants = data.contestants || [];
+        console.log(`✅ 加载了 ${contestants.length} 名选手`);
+        return contestants;
+    } catch (error) {
+        console.error('❌ 加载选手名单失败:', error);
+        alert('加载选手名单失败,请刷新页面重试');
+        return [];
+    }
+}
+
+// 选手登录验证
+async function contestantLogin(loginInput) {
+    const input = loginInput.trim();
+    
+    if (!input) {
+        showLoginError('请输入姓名或手机号');
+        return null;
+    }
+    
+    // 加载选手名单
+    const contestants = await loadContestantList();
+    
+    // 查找匹配的选手(支持姓名或手机号)
+    const matched = contestants.find(c => 
+        c.name === input || c.phone === input
+    );
+    
+    if (!matched) {
+        showLoginError('未找到匹配的选手,请检查输入或联系管理员');
+        return null;
+    }
+    
+    // 检查是否已提交
+    const submittedWorks = await checkIfSubmitted(matched.name);
+    if (submittedWorks) {
+        // 已提交,显示提示
+        showAlreadySubmitted(submittedWorks);
+        return null;
+    }
+    
+    // 登录成功
+    currentContestant = matched;
+    localStorage.setItem('currentContestant', JSON.stringify(matched));
+    
+    // 显示表单
+    document.getElementById('loginSection').style.display = 'none';
+    document.getElementById('formSection').style.display = 'block';
+    
+    // 自动填充姓名和学校
+    document.getElementById('name').value = matched.name;
+    document.getElementById('name').readOnly = true; // 不允许修改
+    
+    if (matched.school) {
+        document.getElementById('school').value = matched.school;
+        document.getElementById('school').disabled = true; // 不允许修改
+    }
+    
+    console.log('✅ 选手登录成功:', matched.name);
+    return matched;
+}
+
+// 检查选手是否已提交作品
+async function checkIfSubmitted(name) {
+    try {
+        // 从Supabase查询
+        const works = await storage.listWorks({ contestant_name: name });
+        if (works && works.length > 0) {
+            return works[0]; // 返回第一个作品
+        }
+        
+        // Fallback: 从localStorage查询
+        const submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+        const submission = submissions.find(s => s.name === name);
+        return submission || null;
+    } catch (error) {
+        console.error('检查提交状态失败:', error);
+        return null;
+    }
+}
+
+// 显示登录错误
+function showLoginError(message) {
+    const errorDiv = document.getElementById('loginError');
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+    setTimeout(() => {
+        errorDiv.style.display = 'none';
+    }, 5000);
+}
+
+// 显示已提交提示
+function showAlreadySubmitted(work) {
+    document.getElementById('loginSection').style.display = 'none';
+    document.getElementById('alreadySubmittedSection').style.display = 'block';
+    
+    const infoDiv = document.getElementById('submittedWorkInfo');
+    const submitTime = work.submit_time ? new Date(work.submit_time).toLocaleString('zh-CN') : work.submitTime;
+    const categoryText = work.category === 'video' ? '视频作品' : '图像作品';
+    
+    infoDiv.innerHTML = `
+        <h3 style="margin-bottom: 1rem;">${work.title}</h3>
+        <div style="text-align: left; line-height: 2;">
+            <div><strong>作者:</strong> ${work.author || work.name}</div>
+            <div><strong>学校:</strong> ${work.school}</div>
+            <div><strong>分类:</strong> ${categoryText}</div>
+            <div><strong>提交时间:</strong> ${submitTime}</div>
+            <div><strong>状态:</strong> <span style="color: var(--success);">已提交</span></div>
+        </div>
+    `;
+}
+
+// 监听登录表单提交
+document.addEventListener('DOMContentLoaded', () => {
+    const loginForm = document.getElementById('contestantLoginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const loginInput = document.getElementById('loginInput').value;
+            await contestantLogin(loginInput);
+        });
+    }
+});
+
+// 检查是否已经登录过
+window.addEventListener('load', () => {
+    const savedContestant = localStorage.getItem('currentContestant');
+    if (savedContestant) {
+        currentContestant = JSON.parse(savedContestant);
+        
+        // 检查是否已提交
+        checkIfSubmitted(currentContestant.name).then(work => {
+            if (work) {
+                showAlreadySubmitted(work);
+            } else {
+                // 未提交,显示表单
+                document.getElementById('loginSection').style.display = 'none';
+                document.getElementById('formSection').style.display = 'block';
+                document.getElementById('name').value = currentContestant.name;
+                document.getElementById('name').readOnly = true;
+                
+                if (currentContestant.school) {
+                    document.getElementById('school').value = currentContestant.school;
+                    document.getElementById('school').disabled = true;
+                }
+            }
+        });
+    }
+});
+
+// 修改提交事件,限制只能提交一次
+const originalSubmitHandler = document.getElementById('contestantForm')?.onsubmit;
+if (document.getElementById('contestantForm')) {
+    document.getElementById('contestantForm').addEventListener('submit', async function(e) {
+        // 再次检查是否已提交
+        if (currentContestant) {
+            const alreadySubmitted = await checkIfSubmitted(currentContestant.name);
+            if (alreadySubmitted) {
+                e.preventDefault();
+                alert('您已经提交过作品,无法重复提交！');
+                showAlreadySubmitted(alreadySubmitted);
+                return false;
+            }
+        }
+        
+        // 检查作品类型是否与该选手其他提交冲突
+        const category = document.getElementById('category').value;
+        const allWorks = await storage.listWorks();
+        const contestantWorks = allWorks.filter(w => 
+            w.contestants?.name === currentContestant?.name || 
+            w.author === currentContestant?.name ||
+            w.name === currentContestant?.name
+        );
+        
+        if (contestantWorks.length > 0) {
+            const existingCategory = contestantWorks[0].category;
+            if (existingCategory !== category) {
+                e.preventDefault();
+                alert(`您之前已提交过${existingCategory === 'video' ? '视频' : '图像'}作品,每个选手只能选择一种作品类型！`);
+                return false;
+            }
+        }
+    }, true); // 使用捕获阶段,确保在其他handler之前执行
+}

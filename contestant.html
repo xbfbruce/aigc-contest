@@ -22,7 +22,33 @@
 
     <div class="main-content">
         <div class="container">
-            <!-- 作品规格公示 -->
+            <!-- 登录区域 -->
+            <section id="loginSection" class="login-section" style="max-width: 500px; margin: 2rem auto;">
+                <h2>🔐 选手登录</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">请使用姓名或手机号登录</p>
+                <form id="contestantLoginForm" class="login-form">
+                    <div class="form-group">
+                        <label for="loginInput">姓名或手机号 *</label>
+                        <input type="text" id="loginInput" required placeholder="请输入您的姓名或手机号">
+                    </div>
+                    <button type="submit" class="btn-primary">登录</button>
+                </form>
+                <div id="loginError" style="color: var(--danger); margin-top: 1rem; display: none;"></div>
+            </section>
+
+            <!-- 已提交提示(登录后如果已提交则显示) -->
+            <section id="alreadySubmittedSection" class="submitted-section" style="display: none; text-align: center; padding: 3rem 1rem;">
+                <div style="font-size: 4rem; margin-bottom: 1rem;">✅</div>
+                <h2>您已成功提交作品</h2>
+                <p style="color: var(--text-secondary); margin: 1rem 0;">每个选手只能提交一次作品,无法重复提交或修改</p>
+                <div id="submittedWorkInfo" style="background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin: 2rem 0; max-width: 600px; margin-left: auto; margin-right: auto;">
+                    <!-- 动态显示已提交的作品信息 -->
+                </div>
+                <button onclick="location.href='index.html'" class="btn-secondary">返回首页</button>
+            </section>
+
+            <!-- 参赛信息表单(登录后显示) -->
+            <section id="formSection" class="form-section" style="display: none;">
             <section class="specs-section">
                 <h2>📋 作品提交规范</h2>
                 <div class="specs-box" id="submissionSpecs">
@@ -97,33 +123,9 @@
                     </div>
 
                     <div class="form-actions">
-                        <button type="button" class="btn-secondary" onclick="saveDraft()">保存草稿</button>
                         <button type="submit" class="btn-primary">提交作品</button>
                     </div>
                 </form>
-            </section>
-
-            <!-- 我的提交记录 -->
-            <section class="submissions-section">
-                <h2>📊 我的提交记录</h2>
-                <div class="submissions-table">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>提交时间</th>
-                                <th>作品标题</th>
-                                <th>分类</th>
-                                <th>状态</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="submissionsList">
-                            <tr>
-                                <td colspan="5" class="empty-state">暂无提交记录</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
             </section>
         </div>
     </div>
