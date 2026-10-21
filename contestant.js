@@ -309,18 +309,20 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
     submitBtn.textContent = '提交中...';
     
     try {
-        // 1. 注册选手(如果不存在)
-        const name = formData.get('name');
-        const school = formData.get('school');
+        // 1. 获取选手信息（从currentContestant或表单）
+        const name = currentContestant?.name || formData.get('name');
+        const school = currentContestant?.school || formData.get('school') || '';
+        
+        console.log('📝 选手信息:', { name, school });
         
         let contestantId = localStorage.getItem('currentContestantId');
         
         if (!contestantId) {
-            console.log('📝 注册新选手:', name, school);
+            console.log('📝 注册/查询选手...');
             const contestant = await storage.registerContestant(name, school);
             contestantId = contestant.id;
             localStorage.setItem('currentContestantId', contestantId);
-            console.log('✅ 选手注册成功, ID:', contestantId);
+            console.log('✅ 选手ID:', contestantId);
         }
         
         // 2. 处理文件 - 对于Supabase,我们存储文件元数据
@@ -336,9 +338,9 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
         const workData = {
             contestant_id: contestantId,
             category: formData.get('category'),
-            group_name: document.getElementById('group').value || currentContestant?.group || '',
+            group_name: document.getElementById('group')?.value || currentContestant?.group || '',
             title: formData.get('workTitle'),
-            description: formData.get('description'),
+            description: formData.get('description') || '',  // 描述字段可能不存在
             file_name: files.map(f => f.name).join(', '),
             file_size: files.reduce((sum, f) => sum + f.size, 0),
             file_url: 'pending_upload', // 后续可以集成Supabase Storage

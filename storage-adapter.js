@@ -159,6 +159,20 @@ class StorageAdapter {
 
     async registerContestant(name, school) {
         if (this.useSupabase && this.supabase) {
+            // 先查询选手是否已存在
+            const { data: existing, error: queryError } = await this.supabase
+                .from('contestants')
+                .select('id, name, school')
+                .eq('name', name)
+                .single();
+            
+            if (!queryError && existing) {
+                // 选手已存在，直接返回
+                console.log('✅ 选手已存在:', existing.name);
+                return existing;
+            }
+            
+            // 选手不存在，创建新记录
             const { data, error } = await this.supabase
                 .from('contestants')
                 .insert([{ name, school }])
