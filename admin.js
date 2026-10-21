@@ -809,186 +809,6 @@ function refreshScores() {
     alert('数据已刷新！');
 }
 
-// ========== 排名导出 ==========
-
-// 生成排名
-function generateRanking() {
-    const works = JSON.parse(localStorage.getItem('works') || '[]');
-    const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
-    const category = document.getElementById('exportCategory').value;
-    const sortBy = document.getElementById('sortBy').value;
-    
-    // 过滤作品
-    let filteredWorks = works.filter(w => w.status === '已通过');
-    if (category !== 'all') {
-        filteredWorks = filteredWorks.filter(w => w.category === category);
-    }
-    
-    // 计算每个作品的平均分（去掉最高分和最低分后平均）
-    const rankedWorks = filteredWorks.map(work => {
-        const scores = judgeScores
-            .filter(s => s.workId === work.id)
-            .map(s => s.totalScore);
-        
-        let avgScore = 0;
-        if (scores.length > 0) {
-            if (scores.length >= 3) {
-                // 去掉最高分和最低分
-                scores.sort((a, b) => a - b);
-                const trimmed = scores.slice(1, -1);
-                avgScore = trimmed.reduce((sum, s) => sum + s, 0) / trimmed.length;
-            } else {
-                avgScore = scores.reduce((sum, s) => sum + s, 0) / scores.length;
-            }
-        }
-        
-        return {
-            ...work,
-            avgScore: avgScore,
-            scoreCount: scores.length,
-            scores: scores
-        };
-    });
-    
-    // 排序
-    if (sortBy === 'totalDesc') {
-        rankedWorks.sort((a, b) => b.avgScore - a.avgScore);
-    } else if (sortBy === 'totalAsc') {
-        rankedWorks.sort((a, b) => a.avgScore - b.avgScore);
-    } else if (sortBy === 'timeDesc') {
-        rankedWorks.sort((a, b) => new Date(b.submitTime) - new Date(a.submitTime));
-    }
-    
-    // 添加排名
-    rankedWorks.forEach((work, index) => {
-        work.rank = index + 1;
-    });
-    
-    // 显示结果
-    displayRanking(rankedWorks);
-    
-    // 保存到全局变量供导出使用
-    window.currentRanking = rankedWorks;
-}
-
-// 显示排名结果
-function displayRanking(rankedWorks) {
-    const container = document.getElementById('rankingResult');
-    
-    if (rankedWorks.length === 0) {
-        container.innerHTML = '<div class="empty-state">没有符合条件的作品</div>';
-        return;
-    }
-    
-    container.innerHTML = `
-        <h4>排名结果（共 ${rankedWorks.length} 个作品）</h4>
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>排名</th>
-                        <th>作品标题</th>
-                        <th>分类</th>
-                        <th>作者</th>
-                        <th>学校</th>
-                        <th>平均分</th>
-                        <th>评分人数</th>
-                        <th>提交时间</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${rankedWorks.map((work, index) => `
-                        <tr style="${index < 3 ? 'background: rgba(99, 102, 241, 0.1);' : ''}">
-                            <td><strong style="color: ${index < 3 ? 'var(--accent)' : 'inherit'}; font-size: ${index < 3 ? '1.3rem' : '1rem'};">${work.rank}</strong></td>
-                            <td>${work.title}</td>
-                            <td>${getCategoryName(work.category)}</td>
-                            <td>${work.author}</td>
-                            <td>${work.school}</td>
-                            <td><strong style="color: var(--primary);">${work.avgScore.toFixed(2)}</strong></td>
-                            <td>${work.scoreCount}人</td>
-                            <td>${work.submitTime || '-'}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        </div>
-    `;
-}
-
-// 导出Excel
-function exportToExcel() {
-    if (!window.currentRanking || window.currentRanking.length === 0) {
-        alert('请先生成排名！');
-        return;
-    }
-    
-    // 创建CSV内容
-    const headers = ['排名', '作品标题', '分类', '作者', '学校', '平均分', '评分人数', '提交时间'];
-    const rows = window.currentRanking.map(work => [
-        work.rank,
-        work.title,
-        getCategoryName(work.category),
-        work.author,
-        work.school,
-        work.avgScore.toFixed(2),
-        work.scoreCount,
-        work.submitTime || ''
-    ]);
-    
-    // 添加BOM以支持中文
-    let csvContent = '\uFEFF';
-    csvContent += headers.join(',') + '\n';
-    rows.forEach(row => {
-        csvContent += row.map(cell => `"${cell}"`).join(',') + '\n';
-    });
-    
-    // 创建下载链接
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    
-    const timestamp = new Date().toISOString().slice(0, 10);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `AIGC大赛排名_${timestamp}.csv`);
-    link.style.visibility = 'hidden';
-    
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    alert('排名数据已导出为CSV文件！');
-}
-
-// 更新Tab切换函数，添加新的tab
-const originalSwitchTab = switchTab;
-switchTab = function(tabName) {
-    // 更新按钮状态
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    event.target.classList.add('active');
-    
-    // 更新内容显示
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-    });
-    
-    if (tabName === 'works') {
-        document.getElementById('worksTab').classList.add('active');
-        loadWorksTable();
-    } else if (tabName === 'specs') {
-        document.getElementById('specsTab').classList.add('active');
-    } else if (tabName === 'judges') {
-        document.getElementById('judgesTab').classList.add('active');
-    } else if (tabName === 'scores') {
-        document.getElementById('scoresTab').classList.add('active');
-        loadScoresData();
-    } else if (tabName === 'ranking') {
-        document.getElementById('rankingTab').classList.add('active');
-    } else if (tabName === 'admin') {
-        document.getElementById('adminTab').classList.add('active');
-    }
-};
 
 // 初始化默认数据
 window.addEventListener('load', () => {
@@ -1029,48 +849,6 @@ window.addEventListener('load', () => {
         localStorage.setItem('judges', JSON.stringify([
             { account: 'judge1', name: '张评委', password: 'judge123' },
             { account: 'judge2', name: '李评委', password: 'judge123' }
-        ]));
-    }
-    
-    // 创建示例作品（用于测试）
-    if (!localStorage.getItem('works')) {
-        localStorage.setItem('works', JSON.stringify([
-            {
-                id: 'work1',
-                title: 'AI创意作品A',
-                category: 'visual',
-                school: '清华大学',
-                author: '张三',
-                description: '这是一幅使用AI生成的数字艺术作品，展现了未来城市的想象。',
-                files: ['artwork.jpg']
-            },
-            {
-                id: 'work2',
-                title: '智能诗歌集',
-                category: 'text',
-                school: '北京大学',
-                author: '李四',
-                description: '使用AI辅助创作的现代诗集，包含20首原创诗歌。',
-                files: ['poems.pdf']
-            },
-            {
-                id: 'work3',
-                title: '电子音乐作品',
-                category: 'audio',
-                school: '中央音乐学院',
-                author: '王五',
-                description: 'AI生成的电子音乐作品，融合了古典与现代元素。',
-                files: ['music.mp3']
-            }
-        ]));
-    }
-    
-    // 创建示例分配
-    if (!localStorage.getItem('assignments')) {
-        localStorage.setItem('assignments', JSON.stringify([
-            { workId: 'work1', judgeAccount: 'judge1' },
-            { workId: 'work2', judgeAccount: 'judge1' },
-            { workId: 'work3', judgeAccount: 'judge2' }
         ]));
     }
 });
@@ -1189,24 +967,45 @@ async function loadGroupRanking() {
         const rankings = [];
         
         for (const work of filteredWorks) {
-            // 获取该作品的所有评分
-            const assignments = await storage.listAssignments({ work_id: work.id });
+            // 直接从Supabase查询该作品的所有已提交评分
             let totalScore = 0;
             let judgeCount = 0;
             const judgeScores = [];
             
-            for (const assignment of assignments) {
-                const scores = await storage.listScores({ assignment_id: assignment.id });
-                for (const score of scores) {
-                    if (score.is_submitted && score.score !== null) {
+            if (storage.useSupabase && storage.supabase) {
+                const { data: scores, error } = await storage.supabase
+                    .from('scores')
+                    .select('*')
+                    .eq('work_id', work.id)
+                    .eq('is_submitted', true);
+                
+                if (error) throw error;
+                
+                if (scores) {
+                    judgeCount = scores.length;
+                    scores.forEach(score => {
                         totalScore += parseFloat(score.score);
-                        judgeCount++;
                         judgeScores.push({
-                            judge_id: assignment.judge_id,
+                            judge_account: score.judge_account,
                             score: parseFloat(score.score)
                         });
-                    }
+                    });
                 }
+            } else {
+                // localStorage fallback
+                const allScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+                const workScores = allScores.filter(s => 
+                    s.workId === work.id && s.isSubmitted
+                );
+                
+                judgeCount = workScores.length;
+                workScores.forEach(score => {
+                    totalScore += score.totalScore;
+                    judgeScores.push({
+                        judge_account: score.judgeAccount,
+                        score: score.totalScore
+                    });
+                });
             }
             
             const avgScore = judgeCount > 0 ? (totalScore / judgeCount).toFixed(2) : null;
@@ -1336,18 +1135,35 @@ async function exportRankingToExcel() {
         const rankings = [];
         
         for (const work of filteredWorks) {
-            const assignments = await storage.listAssignments({ work_id: work.id });
             let totalScore = 0;
             let judgeCount = 0;
             
-            for (const assignment of assignments) {
-                const scores = await storage.listScores({ assignment_id: assignment.id });
-                for (const score of scores) {
-                    if (score.is_submitted && score.score !== null) {
+            if (storage.useSupabase && storage.supabase) {
+                const { data: scores, error } = await storage.supabase
+                    .from('scores')
+                    .select('*')
+                    .eq('work_id', work.id)
+                    .eq('is_submitted', true);
+                
+                if (error) throw error;
+                
+                if (scores) {
+                    judgeCount = scores.length;
+                    scores.forEach(score => {
                         totalScore += parseFloat(score.score);
-                        judgeCount++;
-                    }
+                    });
                 }
+            } else {
+                // localStorage fallback
+                const allScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+                const workScores = allScores.filter(s => 
+                    s.workId === work.id && s.isSubmitted
+                );
+                
+                judgeCount = workScores.length;
+                workScores.forEach(score => {
+                    totalScore += score.totalScore;
+                });
             }
             
             const avgScore = judgeCount > 0 ? (totalScore / judgeCount).toFixed(2) : '';

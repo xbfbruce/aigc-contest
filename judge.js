@@ -99,7 +99,7 @@ function applyGroupFilter() {
     updateProgress();
 }
 
-function renderWorksList() {
+async function renderWorksList() {
     const container = document.getElementById('worksList');
     
     if (filteredWorks.length === 0) {
@@ -111,10 +111,34 @@ function renderWorksList() {
         return;
     }
     
-    const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+    // 从Supabase查询已评分作品
+    let scoredWorkIds = new Set();
+    if (storage.useSupabase && storage.supabase) {
+        try {
+            const { data: scores } = await storage.supabase
+                .from('scores')
+                .select('work_id')
+                .eq('judge_account', currentJudge.account)
+                .eq('is_submitted', true);
+            
+            if (scores) {
+                scoredWorkIds = new Set(scores.map(s => s.work_id));
+            }
+        } catch (error) {
+            console.error('❌ 查询评分状态失败:', error);
+        }
+    } else {
+        // Fallback到localStorage
+        const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+        filteredWorks.forEach(w => {
+            if (judgeScores.find(s => s.workId === w.id && s.judgeAccount === currentJudge.account)) {
+                scoredWorkIds.add(w.id);
+            }
+        });
+    }
     
     container.innerHTML = filteredWorks.map(work => {
-        const scored = judgeScores.find(s => s.workId === work.id && s.judgeAccount === currentJudge.account);
+        const scored = scoredWorkIds.has(work.id);
         const statusClass = scored ? 'status-scored' : 'status-pending';
         const statusText = scored ? '已评分' : '待评分';
         
@@ -233,6 +257,13 @@ async function loadExistingScore(workId) {
     try {
         console.log('🔍 加载评分记录, workId:', workId);
         
+        // 检查Supabase是否可用
+        if (!storage.useSupabase || !storage.supabase) {
+            console.log('⚠️ Supabase不可用，使用localStorage');
+            resetScoreUI();
+            return;
+        }
+
         // 直接通过 work_id 和 judge_account 查询评分
         const { data: scores, error } = await storage.supabase
             .from('scores')
@@ -312,40 +343,62 @@ async function saveScore() {
     if (!currentWork) return;
     
     try {
-        console.log(' 暂存评分:', currentScore);
+        console.log('💾 暂存评分:', currentScore);
         
-        // 直接通过 work_id 和 judge_account 查询评分记录
-        const { data: existingScores, error: queryError } = await storage.supabase
-            .from('scores')
-            .select('*')
-            .eq('work_id', currentWork.id)
-            .eq('judge_account', currentJudge.account);
-        
-        if (queryError) throw queryError;
-        
-        if (existingScores && existingScores.length > 0) {
-            // 更新现有评分
-            const { error: updateError } = await storage.supabase
+        if (storage.useSupabase && storage.supabase) {
+            // Supabase模式
+            const { data: existingScores, error: queryError } = await storage.supabase
                 .from('scores')
-                .update({ 
-                    score: currentScore,
-                    is_submitted: false
-                })
-                .eq('id', existingScores[0].id);
+                .select('*')
+                .eq('work_id', currentWork.id)
+                .eq('judge_account', currentJudge.account);
             
-            if (updateError) throw updateError;
+            if (queryError) throw queryError;
+            
+            if (existingScores && existingScores.length > 0) {
+                const { error: updateError } = await storage.supabase
+                    .from('scores')
+                    .update({ 
+                        score: currentScore,
+                        is_submitted: false
+                    })
+                    .eq('id', existingScores[0].id);
+                
+                if (updateError) throw updateError;
+            } else {
+                const { error: insertError } = await storage.supabase
+                    .from('scores')
+                    .insert([{
+                        work_id: currentWork.id,
+                        judge_account: currentJudge.account,
+                        score: currentScore,
+                        is_submitted: false
+                    }]);
+                
+                if (insertError) throw insertError;
+            }
         } else {
-            // 创建新评分
-            const { error: insertError } = await storage.supabase
-                .from('scores')
-                .insert([{
-                    work_id: currentWork.id,
-                    judge_account: currentJudge.account,
-                    score: currentScore,
-                    is_submitted: false
-                }]);
+            // localStorage fallback
+            let judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+            const existingIndex = judgeScores.findIndex(
+                s => s.workId === currentWork.id && s.judgeAccount === currentJudge.account
+            );
             
-            if (insertError) throw insertError;
+            const scoreRecord = {
+                workId: currentWork.id,
+                judgeAccount: currentJudge.account,
+                totalScore: currentScore,
+                saveTime: new Date().toLocaleString('zh-CN'),
+                isSubmitted: false
+            };
+            
+            if (existingIndex >= 0) {
+                judgeScores[existingIndex] = scoreRecord;
+            } else {
+                judgeScores.push(scoreRecord);
+            }
+            
+            localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
         }
         
         alert('✅ 评分已暂存！');
@@ -371,38 +424,60 @@ async function submitScore() {
     try {
         console.log('📤 提交评分:', currentScore);
         
-        // 直接通过 work_id 和 judge_account 查询评分记录
-        const { data: existingScores, error: queryError } = await storage.supabase
-            .from('scores')
-            .select('*')
-            .eq('work_id', currentWork.id)
-            .eq('judge_account', currentJudge.account);
-        
-        if (queryError) throw queryError;
-        
-        if (existingScores && existingScores.length > 0) {
-            // 更新现有评分
-            const { error: updateError } = await storage.supabase
+        if (storage.useSupabase && storage.supabase) {
+            // Supabase模式
+            const { data: existingScores, error: queryError } = await storage.supabase
                 .from('scores')
-                .update({ 
-                    score: currentScore,
-                    is_submitted: true
-                })
-                .eq('id', existingScores[0].id);
+                .select('*')
+                .eq('work_id', currentWork.id)
+                .eq('judge_account', currentJudge.account);
             
-            if (updateError) throw updateError;
+            if (queryError) throw queryError;
+            
+            if (existingScores && existingScores.length > 0) {
+                const { error: updateError } = await storage.supabase
+                    .from('scores')
+                    .update({ 
+                        score: currentScore,
+                        is_submitted: true
+                    })
+                    .eq('id', existingScores[0].id);
+                
+                if (updateError) throw updateError;
+            } else {
+                const { error: insertError } = await storage.supabase
+                    .from('scores')
+                    .insert([{
+                        work_id: currentWork.id,
+                        judge_account: currentJudge.account,
+                        score: currentScore,
+                        is_submitted: true
+                    }]);
+                
+                if (insertError) throw insertError;
+            }
         } else {
-            // 创建新评分
-            const { error: insertError } = await storage.supabase
-                .from('scores')
-                .insert([{
-                    work_id: currentWork.id,
-                    judge_account: currentJudge.account,
-                    score: currentScore,
-                    is_submitted: true
-                }]);
+            // localStorage fallback
+            let judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+            const existingIndex = judgeScores.findIndex(
+                s => s.workId === currentWork.id && s.judgeAccount === currentJudge.account
+            );
             
-            if (insertError) throw insertError;
+            const scoreRecord = {
+                workId: currentWork.id,
+                judgeAccount: currentJudge.account,
+                totalScore: currentScore,
+                saveTime: new Date().toLocaleString('zh-CN'),
+                isSubmitted: true
+            };
+            
+            if (existingIndex >= 0) {
+                judgeScores[existingIndex] = scoreRecord;
+            } else {
+                judgeScores.push(scoreRecord);
+            }
+            
+            localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
         }
         
         isScoreSubmitted = true;
@@ -428,12 +503,32 @@ function handleScoreChange(value) {
 }
 
 // 更新进度
-function updateProgress() {
+async function updateProgress() {
     const total = filteredWorks.length;
-    const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
-    const scored = filteredWorks.filter(w => 
-        judgeScores.find(s => s.workId === w.id && s.judgeAccount === currentJudge.account)
-    ).length;
+    
+    let scored = 0;
+    if (storage.useSupabase && storage.supabase) {
+        try {
+            const { data: scores } = await storage.supabase
+                .from('scores')
+                .select('work_id')
+                .eq('judge_account', currentJudge.account)
+                .eq('is_submitted', true);
+            
+            if (scores) {
+                const scoredIds = new Set(scores.map(s => s.work_id));
+                scored = filteredWorks.filter(w => scoredIds.has(w.id)).length;
+            }
+        } catch (error) {
+            console.error('❌ 查询进度失败:', error);
+        }
+    } else {
+        // Fallback到localStorage
+        const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+        scored = filteredWorks.filter(w => 
+            judgeScores.find(s => s.workId === w.id && s.judgeAccount === currentJudge.account)
+        ).length;
+    }
     
     document.getElementById('progressText').textContent = `${scored} / ${total} 已完成`;
     document.getElementById('progressFill').style.width = total > 0 ? `${(scored / total) * 100}%` : '0%';
