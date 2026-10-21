@@ -7,26 +7,53 @@ let currentScore = 0; // 当前评分（0-100）
 let isScoreSubmitted = false; // 是否已提交评分
 let currentGroupFilter = ''; // 当前组别筛选
 
-document.getElementById('judgeLoginForm').addEventListener('submit', function(e) {
+document.getElementById('judgeLoginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
     const username = document.getElementById('judgeUsername').value;
     const password = document.getElementById('judgePassword').value;
     
-    // 验证评委账号
-    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
-    const judge = judges.find(j => j.account === username && j.password === password);
-    
-    if (judge) {
-        currentJudge = judge;
-        document.getElementById('judgeName').innerHTML = `评委：<span class="judge-name-display">${judge.name}</span>`;
-        document.getElementById('loginSection').style.display = 'none';
-        document.getElementById('workbenchSection').style.display = 'block';
+    try {
+        // 尝试从Supabase验证评委账号
+        let judge = null;
         
-        loadWorks();
-        updateProgress();
-    } else {
-        alert('账号或密码错误！');
+        if (storage.useSupabase && storage.supabase) {
+            // 从Supabase查询
+            const { data, error } = await storage.supabase
+                .from('judges')
+                .select('*')
+                .eq('account', username)
+                .single();
+            
+            if (!error && data) {
+                // 简单密码验证（生产环境应使用bcrypt）
+                const passwordHash = await storage.hashPassword(password);
+                if (data.password_hash === passwordHash) {
+                    judge = { account: data.account, name: data.name, password: password };
+                }
+            }
+        }
+        
+        // Fallback到localStorage
+        if (!judge) {
+            const judges = JSON.parse(localStorage.getItem('judges') || '[]');
+            judge = judges.find(j => j.account === username && j.password === password);
+        }
+        
+        if (judge) {
+            currentJudge = judge;
+            document.getElementById('judgeName').innerHTML = `评委：<span class="judge-name-display">${judge.name}</span>`;
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('workbenchSection').style.display = 'block';
+            
+            loadWorks();
+            updateProgress();
+        } else {
+            alert('账号或密码错误！');
+        }
+    } catch (error) {
+        console.error('❌ 登录失败:', error);
+        alert('登录失败: ' + error.message);
     }
 });
 
