@@ -524,15 +524,11 @@ async function loadWorksTable() {
                     <td><span class="work-status ${statusClass}">${statusText}</span></td>
                     <td>
                         <button class="btn-secondary btn-sm" onclick="viewWorkDetail('${work.id}')">查看</button>
-                    ${work.status === 'pending' ? `
-                        <button class="btn-primary btn-sm" onclick="approveWork('${work.id}')" style="margin-left: 0.5rem;">通过</button>
-                        <button class="btn-secondary btn-sm" onclick="rejectWork('${work.id}')" style="margin-left: 0.5rem;">驳回</button>
-                    ` : ''}
-                    <button class="btn-secondary btn-sm" onclick="deleteSingleWork('${work.id}')" style="margin-left: 0.5rem; background: var(--danger);">删除</button>
-                </td>
-            </tr>
-        `;
-    }).join('');
+                        <button class="btn-secondary btn-sm" onclick="deleteSingleWork('${work.id}')" style="margin-left: 0.5rem; background: var(--danger);">删除</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
     
     } catch (error) {
         console.error('❌ 加载作品列表失败:', error);
@@ -1298,7 +1294,246 @@ async function refreshAnalytics() {
         }
         
     } catch (error) {
-        console.error('❌ 加载访问统计失败:', error);
+        console.error(' 加载访问统计失败:', error);
         alert('加载统计数据失败: ' + error.message);
+    }
+}
+
+// ============================================
+// 排名统计与Excel导出功能
+// ============================================
+
+// 加载组别排名
+async function loadGroupRanking() {
+    const groupFilter = document.getElementById('groupFilter').value;
+    const container = document.getElementById('rankingResult');
+    
+    try {
+        container.innerHTML = '<div class="empty-state">加载中...</div>';
+        
+        // 获取所有作品
+        const works = await storage.listWorks();
+        
+        // 按组别过滤
+        let filteredWorks = groupFilter ? works.filter(w => w.group_name === groupFilter) : works;
+        
+        if (filteredWorks.length === 0) {
+            container.innerHTML = '<div class="empty-state">该组别暂无作品</div>';
+            return;
+        }
+        
+        // 计算每个作品的平均分和排名
+        const rankings = [];
+        
+        for (const work of filteredWorks) {
+            // 获取该作品的所有评分
+            const assignments = await storage.listAssignments({ work_id: work.id });
+            let totalScore = 0;
+            let judgeCount = 0;
+            const judgeScores = [];
+            
+            for (const assignment of assignments) {
+                const scores = await storage.listScores({ assignment_id: assignment.id });
+                for (const score of scores) {
+                    if (score.is_submitted && score.score !== null) {
+                        totalScore += parseFloat(score.score);
+                        judgeCount++;
+                        judgeScores.push({
+                            judge_id: assignment.judge_id,
+                            score: parseFloat(score.score)
+                        });
+                    }
+                }
+            }
+            
+            const avgScore = judgeCount > 0 ? (totalScore / judgeCount).toFixed(2) : null;
+            
+            // 获取作者信息
+            const authorName = work.contestants?.name || '未知';
+            const school = work.contestants?.school || '未知';
+            
+            rankings.push({
+                work_id: work.id,
+                title: work.title,
+                group_name: work.group_name,
+                category: work.category,
+                author_name: authorName,
+                school: school,
+                judge_count: judgeCount,
+                avg_score: avgScore ? parseFloat(avgScore) : null,
+                judge_scores: judgeScores
+            });
+        }
+        
+        // 按平均分降序排序，无分数的排最后
+        rankings.sort((a, b) => {
+            if (a.avg_score === null && b.avg_score === null) return 0;
+            if (a.avg_score === null) return 1;
+            if (b.avg_score === null) return -1;
+            return b.avg_score - a.avg_score;
+        });
+        
+        // 添加排名
+        rankings.forEach((item, index) => {
+            item.ranking = item.avg_score !== null ? index + 1 : null;
+        });
+        
+        // 渲染排名表格
+        renderRankingTable(rankings, groupFilter);
+        
+    } catch (error) {
+        console.error('❌ 加载排名失败:', error);
+        container.innerHTML = `<div class="empty-state">加载失败: ${error.message}</div>`;
+    }
+}
+
+// 渲染排名表格
+function renderRankingTable(rankings, groupFilter) {
+    const container = document.getElementById('rankingResult');
+    
+    if (rankings.length === 0) {
+        container.innerHTML = '<div class="empty-state">暂无数据</div>';
+        return;
+    }
+    
+    let html = `
+        <div style="margin-bottom: 1rem;">
+            <strong>组别：</strong>${groupFilter || '全部'} | 
+            <strong>作品数：</strong>${rankings.length} | 
+            <strong>已评分：</strong>${rankings.filter(r => r.avg_score !== null).length}
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>排名</th>
+                        <th>作品标题</th>
+                        <th>作者</th>
+                        <th>学校</th>
+                        <th>组别</th>
+                        <th>分类</th>
+                        <th>评委数</th>
+                        <th>平均分</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    rankings.forEach(item => {
+        const rankDisplay = item.ranking ? 
+            `<span style="font-weight: bold; color: ${item.ranking <= 3 ? 'var(--primary)' : 'inherit'};">#${item.ranking}</span>` : 
+            '-';
+        
+        const scoreDisplay = item.avg_score !== null ? 
+            `<span style="font-weight: bold; font-size: 1.1rem;">${item.avg_score.toFixed(2)}</span>` : 
+            '<span style="color: var(--text-secondary);">待评分</span>';
+        
+        html += `
+            <tr>
+                <td>${rankDisplay}</td>
+                <td>${item.title}</td>
+                <td>${item.author_name}</td>
+                <td>${item.school}</td>
+                <td>${item.group_name || '-'}</td>
+                <td>${getCategoryName(item.category)}</td>
+                <td>${item.judge_count}</td>
+                <td>${scoreDisplay}</td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+// 导出排名到Excel
+async function exportRankingToExcel() {
+    const groupFilter = document.getElementById('groupFilter').value;
+    
+    try {
+        // 获取排名数据
+        const works = await storage.listWorks();
+        let filteredWorks = groupFilter ? works.filter(w => w.group_name === groupFilter) : works;
+        
+        if (filteredWorks.length === 0) {
+            alert('没有可导出的数据');
+            return;
+        }
+        
+        // 构建CSV数据
+        let csv = '\uFEFF'; // BOM for UTF-8
+        csv += '排名,作品标题,作者,学校,组别,分类,评委数,平均分\n';
+        
+        // 计算排名（复用loadGroupRanking的逻辑）
+        const rankings = [];
+        
+        for (const work of filteredWorks) {
+            const assignments = await storage.listAssignments({ work_id: work.id });
+            let totalScore = 0;
+            let judgeCount = 0;
+            
+            for (const assignment of assignments) {
+                const scores = await storage.listScores({ assignment_id: assignment.id });
+                for (const score of scores) {
+                    if (score.is_submitted && score.score !== null) {
+                        totalScore += parseFloat(score.score);
+                        judgeCount++;
+                    }
+                }
+            }
+            
+            const avgScore = judgeCount > 0 ? (totalScore / judgeCount).toFixed(2) : '';
+            const authorName = work.contestants?.name || '未知';
+            const school = work.contestants?.school || '未知';
+            
+            rankings.push({
+                title: work.title,
+                author_name: authorName,
+                school: school,
+                group_name: work.group_name || '',
+                category: getCategoryName(work.category),
+                judge_count: judgeCount,
+                avg_score: avgScore
+            });
+        }
+        
+        // 排序
+        rankings.sort((a, b) => {
+            if (!a.avg_score && !b.avg_score) return 0;
+            if (!a.avg_score) return 1;
+            if (!b.avg_score) return -1;
+            return parseFloat(b.avg_score) - parseFloat(a.avg_score);
+        });
+        
+        // 添加排名并写入CSV
+        rankings.forEach((item, index) => {
+            const rank = item.avg_score ? index + 1 : '';
+            csv += `${rank},"${item.title}","${item.author_name}","${item.school}","${item.group_name}","${item.category}",${item.judge_count},${item.avg_score}\n`;
+        });
+        
+        // 下载文件
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const filename = `成绩排名_${groupFilter || '全部组别'}_${timestamp}.csv`;
+        
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        alert(`✅ 已成功导出 ${rankings.length} 条记录`);
+        
+    } catch (error) {
+        console.error('❌ 导出失败:', error);
+        alert('导出失败: ' + error.message);
     }
 }
