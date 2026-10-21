@@ -38,20 +38,10 @@ async function loadWorks() {
         
         console.log('📋 所有作品:', allWorks);
         
-        // 获取分配给当前评委的作品
-        const assignments = await storage.listAssignments({ judge_id: currentJudge.account });
+        // 直接显示所有作品，评委通过组别下拉框筛选（不再使用分配机制）
+        works = allWorks || [];
         
-        console.log('📋 所有分配:', assignments);
-        console.log('👤 当前评委:', currentJudge.account);
-        
-        const assignedWorkIds = assignments.map(a => a.work_id);
-        
-        console.log('🎯 分配的作品ID:', assignedWorkIds);
-        
-        // 过滤出分配给当前评委的作品
-        works = allWorks.filter(w => assignedWorkIds.includes(w.id));
-        
-        console.log('✅ 过滤后的作品:', works);
+        console.log('✅ 显示作品数量:', works.length);
         
         // 应用组别筛选
         applyGroupFilter();

@@ -44,7 +44,6 @@
                     <button class="tab-btn active" onclick="switchTab('works')">作品管理</button>
                     <button class="tab-btn" onclick="switchTab('specs')">作品规格配置</button>
                     <button class="tab-btn" onclick="switchTab('judges')">评委账号管理</button>
-                    <button class="tab-btn" onclick="switchTab('assign')">作品分配</button>
                     <button class="tab-btn" onclick="switchTab('scores')">实时评分</button>
                     <button class="tab-btn" onclick="switchTab('ranking')">排名导出</button>
                     <button class="tab-btn" onclick="switchTab('analytics')">访问统计</button>
@@ -81,51 +80,6 @@
                                 <!-- 动态生成 -->
                             </tbody>
                         </table>
-                    </div>
-                </div>
-
-                <!-- 作品分配 -->
-                <div id="assignTab" class="tab-content">
-                    <div class="tab-header">
-                        <h3>作品分配给评委</h3>
-                        <div>
-                            <button onclick="selectAllWorks()" class="btn-secondary btn-sm">全选</button>
-                            <button onclick="deselectAllWorks()" class="btn-secondary btn-sm" style="margin-left: 0.5rem;">取消全选</button>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>选择作品（可多选）</label>
-                        <div id="assignWorkList" class="checkbox-group" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem;">
-                            <!-- 动态生成 -->
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>选择评委（可多选）</label>
-                        <div id="assignJudgeList" class="checkbox-group">
-                            <!-- 动态生成 -->
-                        </div>
-                    </div>
-                    
-                    <button onclick="assignWorks()" class="btn-primary">确认分配</button>
-                    
-                    <div style="margin-top: 2rem;">
-                        <h4>当前分配情况</h4>
-                        <div class="table-container">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>作品</th>
-                                        <th>已分配评委</th>
-                                        <th>操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="assignmentsTable">
-                                    <!-- 动态生成 -->
-                                </tbody>
-                            </table>
-                        </div>
                     </div>
                 </div>
 
