@@ -64,6 +64,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 5. 更新RLS策略：评分提交后不可修改
 DROP POLICY IF EXISTS "Anyone can update scores" ON scores;
+DROP POLICY IF EXISTS "Scores can be updated before submission" ON scores;
+DROP POLICY IF EXISTS "Submitted scores are read-only" ON scores;
 
 CREATE POLICY "Scores can be updated before submission" 
 ON scores FOR UPDATE 
@@ -71,11 +73,8 @@ TO anon, authenticated
 USING (is_submitted = FALSE)
 WITH CHECK (is_submitted = FALSE);
 
-CREATE POLICY "Submitted scores are read-only" 
-ON scores FOR UPDATE 
-TO anon, authenticated 
-USING (is_submitted = TRUE)
-WITH CHECK (is_submitted = TRUE AND score = OLD.score);
+-- 注意：提交后的评分通过应用层控制，不在数据库层面强制只读
+-- 因为PostgreSQL RLS的WITH CHECK子句无法引用OLD值
 
 -- 6. 添加触发器：提交时记录时间
 CREATE OR REPLACE FUNCTION set_submission_timestamp()
