@@ -279,6 +279,13 @@ function openScoringPanel(workId) {
         filesContainer.innerHTML = '<span style="color: var(--text-secondary);">无附件</span>';
     }
     
+    // 显示评分面板，隐藏作品列表区域
+    document.querySelector('.filter-section').style.display = 'none';
+    document.getElementById('worksList').style.display = 'none';
+    document.getElementById('scoringPanel').style.display = 'block';
+    
+    console.log('✅ 评分面板已显示');
+    
     // 从Supabase加载已有评分
     loadExistingScore(workId);
 }
@@ -365,6 +372,7 @@ function updateSubmitButton() {
 // 关闭打分面板
 function closeScoringPanel() {
     document.getElementById('scoringPanel').style.display = 'none';
+    document.querySelector('.filter-section').style.display = 'block';
     document.getElementById('worksList').style.display = 'block';
     currentWork = null;
 }
