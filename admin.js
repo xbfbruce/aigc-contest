@@ -662,77 +662,85 @@ function getCategoryName(value) {
 }
 
 // 查看作品详情
-function viewWorkDetail(workId) {
-    const works = JSON.parse(localStorage.getItem('works') || '[]');
-    const work = works.find(w => w.id === workId);
-    
-    if (!work) {
-        alert('作品不存在');
-        return;
-    }
-    
-    const detail = `
+async function viewWorkDetail(workId) {
+    try {
+        // 从Supabase获取作品详情
+        const works = await storage.listWorks();
+        const work = works.find(w => w.id === workId);
+        
+        if (!work) {
+            alert('作品不存在');
+            return;
+        }
+        
+        // 获取作者信息
+        const authorName = work.contestants?.name || work.author || '未知';
+        const school = work.contestants?.school || work.school || '未知';
+        const groupName = work.group_name || '未分配';
+        
+        const detail = `
 作品标题：${work.title}
-作者：${work.author}
-学校：${work.school}
+作者：${authorName}
+学校：${school}
+组别：${groupName}
 分类：${getCategoryName(work.category)}
 描述：${work.description || '无'}
-文件：${(work.files || []).join(', ')}
+文件：${work.file_name || '无'}
+文件大小：${(work.file_size / 1024 / 1024).toFixed(2)} MB
 状态：${work.status}
-提交时间：${work.submitTime || '-'}
-    `.trim();
-    
-    alert(detail);
+提交时间：${work.submit_time ? new Date(work.submit_time).toLocaleString('zh-CN') : '-'}
+        `.trim();
+        
+        alert(detail);
+    } catch (error) {
+        console.error('❌ 获取作品详情失败:', error);
+        alert('获取作品详情失败: ' + error.message);
+    }
 }
 
 // 通过作品
-function approveWork(workId) {
+async function approveWork(workId) {
     if (!confirm('确认通过该作品？')) return;
     
-    let works = JSON.parse(localStorage.getItem('works') || '[]');
-    const work = works.find(w => w.id === workId);
-    
-    if (work) {
-        work.status = '已通过';
-        localStorage.setItem('works', JSON.stringify(works));
+    try {
+        // 更新Supabase中的作品状态
+        const { error } = await storage.supabase
+            .from('works')
+            .update({ status: 'reviewing' })
+            .eq('id', workId);
         
-        // 同时更新提交记录
-        let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
-        const sub = submissions.find(s => s.id === workId);
-        if (sub) {
-            sub.status = '已通过';
-            localStorage.setItem('submissions', JSON.stringify(submissions));
-        }
+        if (error) throw error;
         
         alert('作品已通过审核！');
         loadWorksTable();
+    } catch (error) {
+        console.error('❌ 通过作品失败:', error);
+        alert('操作失败: ' + error.message);
     }
 }
 
 // 驳回作品
-function rejectWork(workId) {
+async function rejectWork(workId) {
     const reason = prompt('请输入驳回理由：');
     if (!reason) return;
     
-    let works = JSON.parse(localStorage.getItem('works') || '[]');
-    const work = works.find(w => w.id === workId);
-    
-    if (work) {
-        work.status = '已驳回';
-        work.rejectReason = reason;
-        localStorage.setItem('works', JSON.stringify(works));
+    try {
+        // 更新Supabase中的作品状态
+        const { error } = await storage.supabase
+            .from('works')
+            .update({ 
+                status: 'pending',
+                description: reason  // 将驳回理由存储在description字段
+            })
+            .eq('id', workId);
         
-        // 同时更新提交记录
-        let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
-        const sub = submissions.find(s => s.id === workId);
-        if (sub) {
-            sub.status = '已驳回';
-            sub.rejectReason = reason;
-            localStorage.setItem('submissions', JSON.stringify(submissions));
-        }
+        if (error) throw error;
         
         alert('作品已驳回！');
         loadWorksTable();
+    } catch (error) {
+        console.error('❌ 驳回作品失败:', error);
+        alert('操作失败: ' + error.message);
     }
 }
 
