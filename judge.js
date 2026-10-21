@@ -151,7 +151,7 @@ async function renderWorksList() {
                 <div class="work-meta">
                     分类：${getCategoryName(work.category)} | 
                     组别：${work.group_name || '未分配'} | 
-                    学校：${work.school} | 
+                    学校：${work.contestants?.school || work.school || '未知'} | 
                     ${scored ? '得分：' + scored.totalScore : '点击开始评分'}
                 </div>
             </div>
@@ -171,7 +171,8 @@ function getCategoryName(value) {
 
 // 打开打分面板
 function openScoringPanel(workId) {
-    currentWork = filteredWorks.find(w => w.id === workId);
+    // 从所有作品中查找，而不是仅从过滤后的列表
+    currentWork = works.find(w => w.id === workId);
     if (!currentWork) {
         alert('作品不存在');
         return;
@@ -182,8 +183,19 @@ function openScoringPanel(workId) {
     document.getElementById('scoringWorkTitle').textContent = `作品打分 - ${currentWork.title}`;
     document.getElementById('detailTitle').textContent = currentWork.title || '未命名';
     document.getElementById('detailCategory').textContent = getCategoryName(currentWork.category);
-    document.getElementById('detailSchool').textContent = currentWork.school || '未知';
+    
+    // 获取选手信息（支持两种数据结构）
+    const contestantName = currentWork.contestants?.name || currentWork.author || '未知';
+    const contestantSchool = currentWork.contestants?.school || currentWork.school || '未知';
+    
+    document.getElementById('detailSchool').textContent = contestantSchool;
     document.getElementById('detailDescription').textContent = currentWork.description || '无描述';
+    
+    // 显示作者信息
+    const authorDisplay = document.getElementById('detailAuthor');
+    if (authorDisplay) {
+        authorDisplay.textContent = contestantName;
+    }
     
     // 显示组别信息
     const groupDisplay = document.getElementById('detailGroup');
