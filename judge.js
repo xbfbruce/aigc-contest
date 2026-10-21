@@ -222,9 +222,21 @@ function openScoringPanel(workId) {
         groupDisplay.textContent = currentWork.group_name || '未分配';
     }
     
+    // 将扁平的文件字段转换为 files 数组（兼容两种数据结构）
+    let workFiles = currentWork.files;
+    if (!workFiles && currentWork.file_name) {
+        // 从扁平字段构建 files 数组
+        workFiles = [{
+            name: currentWork.file_name,
+            size: currentWork.file_size,
+            url: currentWork.file_url || currentWork.thumbnail_url,
+            metadata: currentWork.file_metadata || {}
+        }];
+    }
+    
     // 显示文件列表
     const filesContainer = document.getElementById('detailFiles');
-    if (currentWork.files && currentWork.files.length > 0) {
+    if (workFiles && workFiles.length > 0) {
         // 判断是否为图片作品
         const isImageWork = currentWork.category === 'image';
         
@@ -232,7 +244,7 @@ function openScoringPanel(workId) {
             // 图片作品：显示可点击预览的缩略图
             filesContainer.innerHTML = `
                 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; margin-top: 0.5rem;">
-                    ${currentWork.files.map((file, index) => {
+                    ${workFiles.map((file, index) => {
                         // 对于测试数据，使用占位图；实际应用中应该是真实图片URL
                         const fileSize = file.size ? (file.size / 1024 / 1024).toFixed(2) : '未知';
                         const resolution = file.metadata ? `${file.metadata.width}×${file.metadata.height}` : '未知分辨率';
@@ -254,7 +266,7 @@ function openScoringPanel(workId) {
             `;
         } else {
             // 视频作品：显示视频信息
-            filesContainer.innerHTML = currentWork.files.map(file => {
+            filesContainer.innerHTML = workFiles.map(file => {
                 const fileSize = file.size ? (file.size / 1024 / 1024).toFixed(2) : '未知';
                 const duration = file.metadata && file.metadata.duration ? 
                     `${Math.floor(file.metadata.duration / 60)}:${Math.floor(file.metadata.duration % 60).toString().padStart(2, '0')}` : 
