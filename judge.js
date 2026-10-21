@@ -3,7 +3,8 @@ let currentJudge = null;
 let works = [];
 let filteredWorks = []; // 过滤后的作品列表
 let currentWork = null;
-let scores = {};
+let currentScore = 0; // 当前评分（0-100）
+let isScoreSubmitted = false; // 是否已提交评分
 let currentGroupFilter = ''; // 当前组别筛选
 
 document.getElementById('judgeLoginForm').addEventListener('submit', function(e) {
@@ -199,67 +200,83 @@ function openScoringPanel(workId) {
         filesContainer.innerHTML = '<span style="color: var(--text-secondary);">无附件</span>';
     }
     
-    // 加载已有评分
-    const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
-    const existingScore = judgeScores.find(s => s.workId === workId && s.judgeAccount === currentJudge.account);
-    
-    if (existingScore) {
-        scores = existingScore.scores;
-    } else {
-        scores = {};
-    }
-    
-    // 渲染评分项
-    renderScoringItems();
-    
-    document.getElementById('scoringPanel').style.display = 'block';
-    document.getElementById('worksList').style.display = 'none';
+    // 从Supabase加载已有评分
+    loadExistingScore(workId);
 }
 
-function renderScoringItems() {
-    const scoringItemsConfig = JSON.parse(localStorage.getItem('scoringItems') || '[{"name":"创意性","maxScore":10},{"name":"完成度","maxScore":10},{"name":"表现力","maxScore":10},{"name":"契合度","maxScore":10}]');
-    
-    const container = document.getElementById('scoringItems');
-    let maxTotal = 0;
-    
-    container.innerHTML = scoringItemsConfig.map(item => {
-        maxTotal += item.maxScore;
-        const currentScore = scores[item.name] || 0;
+// 从Supabase加载已有评分
+async function loadExistingScore(workId) {
+    try {
+        console.log('🔍 加载评分记录, workId:', workId);
         
-        return `
-            <div class="score-item">
-                <label>${item.name} (0-${item.maxScore}分)</label>
-                <div class="score-slider">
-                    <input type="range" class="slider-input" 
-                           min="0" max="${item.maxScore}" step="0.1" 
-                           value="${currentScore}"
-                           data-item="${item.name}"
-                           oninput="updateScore('${item.name}', this.value, ${item.maxScore})">
-                    <span class="score-value-display" id="score-${item.name}">${currentScore.toFixed(1)}</span>
-                </div>
-            </div>
-        `;
-    }).join('');
-    
-    document.getElementById('maxScore').textContent = maxTotal;
-    calculateTotal();
-}
-
-function updateScore(itemName, value, maxScore) {
-    value = parseFloat(value);
-    if (value > maxScore) {
-        value = maxScore;
-        alert(`不能超过最高分 ${maxScore} 分`);
+        // 查询该评委对该作品的评分
+        const assignments = await storage.listAssignments({ work_id: workId });
+        console.log(' 分配记录:', assignments);
+        
+        if (!assignments || assignments.length === 0) {
+            console.warn('⚠️ 未找到分配记录');
+            resetScoreUI();
+            return;
+        }
+        
+        const assignment = assignments[0];
+        const scores = await storage.listScores({ assignment_id: assignment.id });
+        console.log('📊 评分记录:', scores);
+        
+        if (scores && scores.length > 0) {
+            const scoreRecord = scores[0];
+            currentScore = parseFloat(scoreRecord.score) || 0;
+            isScoreSubmitted = scoreRecord.is_submitted || false;
+            
+            console.log(`✅ 加载评分: ${currentScore}分, 已提交: ${isScoreSubmitted}`);
+            
+            // 更新UI
+            updateScoreInput(currentScore);
+            updateSubmitButton();
+        } else {
+            console.log('  暂无评分记录');
+            resetScoreUI();
+        }
+    } catch (error) {
+        console.error('❌ 加载评分失败:', error);
+        resetScoreUI();
     }
-    
-    scores[itemName] = value;
-    document.getElementById(`score-${itemName}`).textContent = value.toFixed(1);
-    calculateTotal();
 }
 
-function calculateTotal() {
-    const total = Object.values(scores).reduce((sum, score) => sum + score, 0);
-    document.getElementById('totalScore').textContent = total.toFixed(1);
+// 重置评分UI
+function resetScoreUI() {
+    currentScore = 0;
+    isScoreSubmitted = false;
+    updateScoreInput(0);
+    updateSubmitButton();
+}
+
+// 更新评分输入框
+function updateScoreInput(value) {
+    const scoreInput = document.getElementById('scoreInput');
+    if (scoreInput) {
+        scoreInput.value = value;
+    }
+    const scoreDisplay = document.getElementById('scoreDisplay');
+    if (scoreDisplay) {
+        scoreDisplay.textContent = value.toFixed(1);
+    }
+}
+
+// 更新提交按钮状态
+function updateSubmitButton() {
+    const submitBtn = document.querySelector('button[onclick="submitScore()"]');
+    if (submitBtn) {
+        if (isScoreSubmitted) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = '已提交';
+            submitBtn.style.opacity = '0.5';
+        } else {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '提交评分';
+            submitBtn.style.opacity = '1';
+        }
+    }
 }
 
 // 关闭打分面板
@@ -269,52 +286,130 @@ function closeScoringPanel() {
     currentWork = null;
 }
 
-// 暂存评分
-function saveScore() {
+// 暂存评分（保存到Supabase）
+async function saveScore() {
     if (!currentWork) return;
     
-    const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
-    const existingIndex = judgeScores.findIndex(s => s.workId === currentWork.id && s.judgeAccount === currentJudge.account);
-    
-    const scoreData = {
-        workId: currentWork.id,
-        judgeAccount: currentJudge.account,
-        scores: scores,
-        totalScore: parseFloat(document.getElementById('totalScore').textContent),
-        saveTime: new Date().toLocaleString('zh-CN')
-    };
-    
-    if (existingIndex >= 0) {
-        judgeScores[existingIndex] = scoreData;
-    } else {
-        judgeScores.push(scoreData);
+    try {
+        console.log('💾 暂存评分:', currentScore);
+        
+        // 查询或创建分配记录
+        let assignments = await storage.listAssignments({ work_id: currentWork.id });
+        let assignment;
+        
+        if (!assignments || assignments.length === 0) {
+            // 创建新的分配记录
+            const judges = await storage.listJudges();
+            const judge = judges.find(j => j.account === currentJudge.account);
+            
+            if (!judge) {
+                alert('评委信息不存在');
+                return;
+            }
+            
+            assignment = await storage.createAssignment(judge.id, currentWork.id);
+        } else {
+            assignment = assignments[0];
+        }
+        
+        // 保存或更新评分
+        const scores = await storage.listScores({ assignment_id: assignment.id });
+        
+        if (scores && scores.length > 0) {
+            // 更新现有评分
+            await storage.supabase
+                .from('scores')
+                .update({ 
+                    score: currentScore,
+                    is_submitted: false
+                })
+                .eq('id', scores[0].id);
+        } else {
+            // 创建新评分
+            await storage.supabase
+                .from('scores')
+                .insert([{
+                    assignment_id: assignment.id,
+                    score: currentScore,
+                    is_submitted: false
+                }]);
+        }
+        
+        alert('评分已暂存！');
+    } catch (error) {
+        console.error('❌ 暂存失败:', error);
+        alert('暂存失败: ' + error.message);
     }
-    
-    localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
-    alert('评分已暂存！');
 }
 
 // 提交评分
-function submitScore() {
+async function submitScore() {
     if (!currentWork) return;
     
-    const scoringItemsConfig = JSON.parse(localStorage.getItem('scoringItems') || '[]');
-    const hasUnscored = scoringItemsConfig.some(item => !scores[item.name]);
-    
-    if (hasUnscored) {
-        alert('请完成所有评分项目的打分！');
+    if (currentScore === 0) {
+        alert('请先输入评分！');
         return;
     }
     
-    if (!confirm('确认提交评分？提交后不可修改！')) {
+    if (!confirm(`确认提交评分 ${currentScore.toFixed(1)} 分？\n\n提交后将不可修改！`)) {
         return;
     }
     
-    saveScore();
-    alert('评分提交成功！');
-    closeScoringPanel();
-    loadWorks();
-    updateProgress();
+    try {
+        console.log('📤 提交评分:', currentScore);
+        
+        // 查询分配记录
+        const assignments = await storage.listAssignments({ work_id: currentWork.id });
+        if (!assignments || assignments.length === 0) {
+            alert('未找到作品分配记录');
+            return;
+        }
+        
+        const assignment = assignments[0];
+        
+        // 查询或创建评分记录
+        const scores = await storage.listScores({ assignment_id: assignment.id });
+        
+        if (scores && scores.length > 0) {
+            // 更新现有评分
+            await storage.supabase
+                .from('scores')
+                .update({ 
+                    score: currentScore,
+                    is_submitted: true
+                })
+                .eq('id', scores[0].id);
+        } else {
+            // 创建新评分
+            await storage.supabase
+                .from('scores')
+                .insert([{
+                    assignment_id: assignment.id,
+                    score: currentScore,
+                    is_submitted: true
+                }]);
+        }
+        
+        isScoreSubmitted = true;
+        updateSubmitButton();
+        
+        alert('✅ 评分提交成功！');
+        closeScoringPanel();
+        loadWorks();
+        updateProgress();
+    } catch (error) {
+        console.error('❌ 提交失败:', error);
+        alert('提交失败: ' + error.message);
+    }
+}
+
+// 处理评分输入变化
+function handleScoreChange(value) {
+    currentScore = parseFloat(value);
+    if (isNaN(currentScore) || currentScore < 0) currentScore = 0;
+    if (currentScore > 100) currentScore = 100;
+    
+    updateScoreInput(currentScore);
 }
 
 // 更新进度

@@ -100,15 +100,28 @@
                         </div>
 
                         <div class="scoring-form">
-                            <h4>评分项目</h4>
-                            <div id="scoringItems">
-                                <!-- 动态生成评分项 -->
-                            </div>
-
-                            <div class="total-score-display">
-                                <span>总分：</span>
-                                <span class="score-value" id="totalScore">0.0</span>
-                                <span class="score-max">/ <span id="maxScore">40</span></span>
+                            <h4>作品评分（0-100分）</h4>
+                            
+                            <div style="background: var(--bg-secondary); padding: 2rem; border-radius: 12px; text-align: center; margin: 1.5rem 0;">
+                                <label for="scoreInput" style="font-size: 1.2rem; font-weight: 600; display: block; margin-bottom: 1rem;">
+                                    请输入评分
+                                </label>
+                                <input 
+                                    type="number" 
+                                    id="scoreInput" 
+                                    min="0" 
+                                    max="100" 
+                                    step="0.1" 
+                                    value="0"
+                                    oninput="handleScoreChange(this.value)"
+                                    style="width: 200px; padding: 1rem; font-size: 2rem; text-align: center; border: 3px solid var(--primary); border-radius: 12px; background: white; color: var(--text-primary);"
+                                >
+                                <div style="margin-top: 1rem; font-size: 1.5rem; color: var(--primary);">
+                                    当前评分：<span id="scoreDisplay" style="font-size: 2.5rem; font-weight: bold;">0.0</span> 分
+                                </div>
+                                <small style="color: var(--text-secondary); display: block; margin-top: 0.5rem;">
+                                    支持小数，精确到0.1分
+                                </small>
                             </div>
 
                             <div class="scoring-actions">
