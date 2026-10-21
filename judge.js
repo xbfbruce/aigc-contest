@@ -77,9 +77,9 @@ function renderWorksList() {
     
     if (filteredWorks.length === 0) {
         if (currentGroupFilter) {
-            container.innerHTML = '<div class="empty-state">该组别暂无分配的作品</div>';
+            container.innerHTML = '<div class="empty-state">该组别暂无作品</div>';
         } else {
-            container.innerHTML = '<div class="empty-state">暂无分配的作品</div>';
+            container.innerHTML = '<div class="empty-state">暂无已提交的作品</div>';
         }
         return;
     }
@@ -206,18 +206,15 @@ async function loadExistingScore(workId) {
     try {
         console.log('🔍 加载评分记录, workId:', workId);
         
-        // 查询该评委对该作品的评分
-        const assignments = await storage.listAssignments({ work_id: workId });
-        console.log(' 分配记录:', assignments);
+        // 直接通过 work_id 和 judge_account 查询评分
+        const { data: scores, error } = await storage.supabase
+            .from('scores')
+            .select('*')
+            .eq('work_id', workId)
+            .eq('judge_account', currentJudge.account);
         
-        if (!assignments || assignments.length === 0) {
-            console.warn('⚠️ 未找到分配记录');
-            resetScoreUI();
-            return;
-        }
+        if (error) throw error;
         
-        const assignment = assignments[0];
-        const scores = await storage.listScores({ assignment_id: assignment.id });
         console.log('📊 评分记录:', scores);
         
         if (scores && scores.length > 0) {
@@ -288,45 +285,48 @@ async function saveScore() {
     if (!currentWork) return;
     
     try {
-        console.log('💾 暂存评分:', currentScore);
+        console.log(' 暂存评分:', currentScore);
         
-        // 查询或创建分配记录
-        let assignments = await storage.listAssignments({ work_id: currentWork.id });
-        let assignment;
+        // 直接通过 work_id 和 judge_account 查询评分记录
+        const { data: existingScores, error: queryError } = await storage.supabase
+            .from('scores')
+            .select('*')
+            .eq('work_id', currentWork.id)
+            .eq('judge_account', currentJudge.account);
         
-        if (!assignments || assignments.length === 0) {
-            // 创建新的分配记录
-            const judges = await storage.listJudges();
-            const judge = judges.find(j => j.account === currentJudge.account);
-            
-            if (!judge) {
-                alert('评委信息不存在');
-                return;
-            }
-            
-            assignment = await storage.createAssignment(judge.id, currentWork.id);
-        } else {
-            assignment = assignments[0];
-        }
+        if (queryError) throw queryError;
         
-        // 保存或更新评分
-        const scores = await storage.listScores({ assignment_id: assignment.id });
-        
-        if (scores && scores.length > 0) {
+        if (existingScores && existingScores.length > 0) {
             // 更新现有评分
-            await storage.supabase
+            const { error: updateError } = await storage.supabase
                 .from('scores')
                 .update({ 
                     score: currentScore,
                     is_submitted: false
                 })
-                .eq('id', scores[0].id);
+                .eq('id', existingScores[0].id);
+            
+            if (updateError) throw updateError;
         } else {
             // 创建新评分
-            await storage.supabase
+            const { error: insertError } = await storage.supabase
                 .from('scores')
                 .insert([{
-                    assignment_id: assignment.id,
+                    work_id: currentWork.id,
+                    judge_account: currentJudge.account,
+                    score: currentScore,
+                    is_submitted: false
+                }]);
+            
+            if (insertError) throw insertError;
+        }
+        
+        alert('✅ 评分已暂存！');
+    } catch (error) {
+        console.error('❌ 暂存失败:', error);
+        alert('暂存失败: ' + error.message);
+    }
+}
                     score: currentScore,
                     is_submitted: false
                 }]);
@@ -355,36 +355,38 @@ async function submitScore() {
     try {
         console.log('📤 提交评分:', currentScore);
         
-        // 查询分配记录
-        const assignments = await storage.listAssignments({ work_id: currentWork.id });
-        if (!assignments || assignments.length === 0) {
-            alert('未找到作品分配记录');
-            return;
-        }
+        // 直接通过 work_id 和 judge_account 查询评分记录
+        const { data: existingScores, error: queryError } = await storage.supabase
+            .from('scores')
+            .select('*')
+            .eq('work_id', currentWork.id)
+            .eq('judge_account', currentJudge.account);
         
-        const assignment = assignments[0];
+        if (queryError) throw queryError;
         
-        // 查询或创建评分记录
-        const scores = await storage.listScores({ assignment_id: assignment.id });
-        
-        if (scores && scores.length > 0) {
+        if (existingScores && existingScores.length > 0) {
             // 更新现有评分
-            await storage.supabase
+            const { error: updateError } = await storage.supabase
                 .from('scores')
                 .update({ 
                     score: currentScore,
                     is_submitted: true
                 })
-                .eq('id', scores[0].id);
+                .eq('id', existingScores[0].id);
+            
+            if (updateError) throw updateError;
         } else {
             // 创建新评分
-            await storage.supabase
+            const { error: insertError } = await storage.supabase
                 .from('scores')
                 .insert([{
-                    assignment_id: assignment.id,
+                    work_id: currentWork.id,
+                    judge_account: currentJudge.account,
                     score: currentScore,
                     is_submitted: true
                 }]);
+            
+            if (insertError) throw insertError;
         }
         
         isScoreSubmitted = true;
