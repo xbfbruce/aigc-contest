@@ -155,7 +155,7 @@ function resetToDefaults() {
 }
 
 // 加载评委列表
-function loadJudgesTable() {
+async function loadJudgesTable() {
     const judgesData = localStorage.getItem('judges');
     let judges = [];
     
@@ -185,9 +185,6 @@ function loadJudgesTable() {
         return;
     }
     
-    const assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
-    const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
-    
     // 过滤掉无效数据
     const validJudges = judges.filter(judge => {
         if (!judge || !judge.account || !judge.name) {
@@ -208,26 +205,49 @@ function loadJudgesTable() {
         return;
     }
     
-    tbody.innerHTML = validJudges.map(judge => {
-        const assignedCount = assignments.filter(a => a.judgeAccount === judge.account).length;
-        const scoredCount = judgeScores.filter(s => s.judgeAccount === judge.account).length;
+    // 从 Supabase 获取每个评委的已评分作品数
+    try {
+        const { data: allScores, error } = await storage.supabase
+            .from('scores')
+            .select('judge_account, work_id')
+            .eq('is_submitted', true);
         
-        return `
-            <tr>
-                <td>${judge.account}</td>
-                <td>${judge.name}</td>
-                <td>${assignedCount}</td>
-                <td>${scoredCount}</td>
-                <td><span class="work-status status-scored">正常</span></td>
-                <td>
-                    <button class="btn-secondary btn-sm" onclick="resetJudgePassword('${judge.account}')">重置密码</button>
-                    <button class="btn-secondary btn-sm" onclick="deleteJudge('${judge.account}')" style="margin-left: 0.5rem;">删除</button>
-                </td>
-            </tr>
-        `;
-    }).join('');
-    
-    console.log(`加载评委列表：共${validJudges.length}个评委`);
+        if (error) throw error;
+        
+        // 统计每个评委的已评分作品数
+        const scoredCountMap = {};
+        if (allScores) {
+            allScores.forEach(score => {
+                if (!scoredCountMap[score.judge_account]) {
+                    scoredCountMap[score.judge_account] = new Set();
+                }
+                scoredCountMap[score.judge_account].add(score.work_id);
+            });
+        }
+        
+        tbody.innerHTML = validJudges.map(judge => {
+            const scoredCount = scoredCountMap[judge.account]?.size || 0;
+            
+            return `
+                <tr>
+                    <td>${judge.account}</td>
+                    <td>${judge.name}</td>
+                    <td>-</td>
+                    <td>${scoredCount}</td>
+                    <td><span class="work-status status-scored">正常</span></td>
+                    <td>
+                        <button class="btn-secondary btn-sm" onclick="resetJudgePassword('${judge.account}')">重置密码</button>
+                        <button class="btn-secondary btn-sm" onclick="deleteJudge('${judge.account}')" style="margin-left: 0.5rem;">删除</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+        
+        console.log(`加载评委列表：共${validJudges.length}个评委`);
+    } catch (error) {
+        console.error('❌ 加载评委列表失败:', error);
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">加载失败: ' + error.message + '</td></tr>';
+    }
 }
 
 // 显示添加评委模态框
