@@ -137,13 +137,22 @@ async function renderWorksList() {
         });
     }
     
+    // 调试：打印第一个作品的结构，检查school字段
+    if (filteredWorks.length > 0) {
+        console.log('=== 作品数据结构调试 ===');
+        console.log('完整对象:', JSON.stringify(filteredWorks[0], null, 2));
+        console.log('school字段值:', filteredWorks[0].school);
+        console.log('contestants字段:', filteredWorks[0].contestants);
+        console.log('========================');
+    }
+    
     container.innerHTML = filteredWorks.map(work => {
         const scored = scoredWorkIds.has(work.id);
         const statusClass = scored ? 'status-scored' : 'status-pending';
         const statusText = scored ? '已评分' : '待评分';
         
         return `
-            <div class="work-item" onclick="openScoringPanel('${work.id}')">
+            <div class="work-item" data-work-id="${work.id}">
                 <div class="work-item-header">
                     <div class="work-title">${work.title}</div>
                     <span class="work-status ${statusClass}">${statusText}</span>
@@ -157,6 +166,16 @@ async function renderWorksList() {
             </div>
         `;
     }).join('');
+    
+    // 使用事件委托处理点击（避免inline onclick的引号问题）
+    container.onclick = function(e) {
+        const workItem = e.target.closest('.work-item');
+        if (workItem) {
+            const workId = workItem.dataset.workId;
+            console.log('✅ 点击了作品ID:', workId);
+            openScoringPanel(workId);
+        }
+    };
 }
 
 function getCategoryName(value) {
