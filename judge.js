@@ -31,27 +31,34 @@ document.getElementById('judgeLoginForm').addEventListener('submit', function(e)
 });
 
 // 加载作品列表
-function loadWorks() {
-    const allWorks = JSON.parse(localStorage.getItem('works') || '[]');
-    const assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
-    
-    console.log('所有作品:', allWorks);
-    console.log('所有分配:', assignments);
-    console.log('当前评委:', currentJudge.account);
-    
-    // 获取分配给当前评委的作品
-    const assignedWorkIds = assignments
-        .filter(a => a.judgeAccount === currentJudge.account)
-        .map(a => a.workId);
-    
-    console.log('分配的作品ID:', assignedWorkIds);
-    
-    works = allWorks.filter(w => assignedWorkIds.includes(w.id));
-    
-    console.log('过滤后的作品:', works);
-    
-    // 应用组别筛选
-    applyGroupFilter();
+async function loadWorks() {
+    try {
+        // 从 Supabase 获取所有作品
+        const allWorks = await storage.listWorks();
+        
+        console.log('📋 所有作品:', allWorks);
+        
+        // 获取分配给当前评委的作品
+        const assignments = await storage.listAssignments({ judge_id: currentJudge.account });
+        
+        console.log('📋 所有分配:', assignments);
+        console.log('👤 当前评委:', currentJudge.account);
+        
+        const assignedWorkIds = assignments.map(a => a.work_id);
+        
+        console.log('🎯 分配的作品ID:', assignedWorkIds);
+        
+        // 过滤出分配给当前评委的作品
+        works = allWorks.filter(w => assignedWorkIds.includes(w.id));
+        
+        console.log('✅ 过滤后的作品:', works);
+        
+        // 应用组别筛选
+        applyGroupFilter();
+    } catch (error) {
+        console.error('❌ 加载作品失败:', error);
+        alert('加载作品失败: ' + error.message);
+    }
 }
 
 // 按组别筛选作品

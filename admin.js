@@ -750,23 +750,29 @@ function loadAssignData() {
 }
 
 // 加载作品选择下拉框
-function loadAssignWorkSelect() {
-    const works = JSON.parse(localStorage.getItem('works') || '[]');
-    const approvedWorks = works.filter(w => w.status === '已通过');
-    
-    const container = document.getElementById('assignWorkList');
-    
-    if (approvedWorks.length === 0) {
-        container.innerHTML = '<div class="empty-state">暂无已通过的作品</div>';
-        return;
+async function loadAssignWorkSelect() {
+    try {
+        // 从 Supabase 获取所有作品（不再依赖审核状态）
+        const allWorks = await storage.listWorks();
+        
+        const container = document.getElementById('assignWorkList');
+        
+        if (!allWorks || allWorks.length === 0) {
+            container.innerHTML = '<div class="empty-state">暂无已提交的作品</div>';
+            return;
+        }
+        
+        container.innerHTML = allWorks.map(work => `
+            <label>
+                <input type="checkbox" name="assignWorks" value="${work.id}">
+                ${work.title} - ${work.contestants?.name || work.author || '未知'} (${getCategoryName(work.category)})
+            </label>
+        `).join('');
+    } catch (error) {
+        console.error('❌ 加载作品列表失败:', error);
+        const container = document.getElementById('assignWorkList');
+        container.innerHTML = '<div class="empty-state">加载失败: ' + error.message + '</div>';
     }
-    
-    container.innerHTML = approvedWorks.map(work => `
-        <label>
-            <input type="checkbox" name="assignWorks" value="${work.id}">
-            ${work.title} - ${work.author} (${getCategoryName(work.category)})
-        </label>
-    `).join('');
 }
 
 // 全选作品
@@ -798,7 +804,7 @@ function loadAssignJudgeList() {
 }
 
 // 分配作品（支持批量）
-function assignWorks() {
+async function assignWorks() {
     const selectedWorkIds = Array.from(document.querySelectorAll('input[name="assignWorks"]:checked'))
         .map(cb => cb.value);
     const selectedJudges = Array.from(document.querySelectorAll('input[name="assignJudges"]:checked'))
@@ -814,81 +820,103 @@ function assignWorks() {
         return;
     }
     
-    let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
-    let addedCount = 0;
-    
-    // 批量添加分配关系
-    selectedWorkIds.forEach(workId => {
-        selectedJudges.forEach(judgeAccount => {
-            const exists = assignments.find(a => a.workId === workId && a.judgeAccount === judgeAccount);
-            if (!exists) {
-                assignments.push({ workId, judgeAccount });
-                addedCount++;
+    try {
+        let addedCount = 0;
+        
+        // 为每个评委批量分配作品
+        for (const judgeAccount of selectedJudges) {
+            // 获取该评委已分配的作品ID
+            const existingAssignments = await storage.listAssignments({ judge_id: judgeAccount });
+            const existingWorkIds = existingAssignments.map(a => a.work_id);
+            
+            // 找出需要新增的作品
+            const newWorkIds = selectedWorkIds.filter(id => !existingWorkIds.includes(id));
+            
+            if (newWorkIds.length > 0) {
+                await storage.createAssignments(judgeAccount, newWorkIds);
+                addedCount += newWorkIds.length;
             }
-        });
-    });
-    
-    localStorage.setItem('assignments', JSON.stringify(assignments));
-    alert(`成功添加 ${addedCount} 条分配记录！\n${selectedWorkIds.length} 个作品分配给 ${selectedJudges.length} 位评委`);
-    
-    // 清空选择
-    document.querySelectorAll('input[name="assignWorks"]').forEach(cb => cb.checked = false);
-    document.querySelectorAll('input[name="assignJudges"]').forEach(cb => cb.checked = false);
-    
-    loadAssignmentsTable();
+        }
+        
+        alert(`✅ 成功添加 ${addedCount} 条分配记录！\n${selectedWorkIds.length} 个作品分配给 ${selectedJudges.length} 位评委`);
+        
+        // 清空选择
+        document.querySelectorAll('input[name="assignWorks"]').forEach(cb => cb.checked = false);
+        document.querySelectorAll('input[name="assignJudges"]').forEach(cb => cb.checked = false);
+        
+        loadAssignmentsTable();
+    } catch (error) {
+        console.error('❌ 分配失败:', error);
+        alert('分配失败: ' + error.message);
+    }
 }
 
 // 加载分配情况表格
-function loadAssignmentsTable() {
-    const assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
-    const works = JSON.parse(localStorage.getItem('works') || '[]');
-    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
-    const tbody = document.getElementById('assignmentsTable');
-    
-    if (assignments.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="empty-state">暂无分配记录</td></tr>';
-        return;
-    }
-    
-    // 按作品分组
-    const workGroups = {};
-    assignments.forEach(a => {
-        if (!workGroups[a.workId]) {
-            workGroups[a.workId] = [];
-        }
-        workGroups[a.workId].push(a.judgeAccount);
-    });
-    
-    tbody.innerHTML = Object.keys(workGroups).map(workId => {
-        const work = works.find(w => w.id === workId);
-        const judgeAccounts = workGroups[workId];
-        const judgeNames = judgeAccounts.map(acc => {
-            const judge = judges.find(j => j.account === acc);
-            return judge ? judge.name : acc;
-        }).join(', ');
+async function loadAssignmentsTable() {
+    try {
+        const assignments = await storage.listAssignments();
+        const works = await storage.listWorks();
+        const judges = JSON.parse(localStorage.getItem('judges') || '[]');
+        const tbody = document.getElementById('assignmentsTable');
         
-        return `
-            <tr>
-                <td>${work ? work.title : workId}</td>
-                <td>${judgeNames}</td>
-                <td>
-                    <button class="btn-secondary btn-sm" onclick="clearAssignment('${workId}')">清除分配</button>
-                </td>
-            </tr>
-        `;
-    }).join('');
+        if (!assignments || assignments.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="empty-state">暂无分配记录</td></tr>';
+            return;
+        }
+        
+        // 按作品分组
+        const workGroups = {};
+        assignments.forEach(a => {
+            if (!workGroups[a.work_id]) {
+                workGroups[a.work_id] = [];
+            }
+            workGroups[a.work_id].push(a.judge_id);
+        });
+        
+        tbody.innerHTML = Object.keys(workGroups).map(workId => {
+            const work = works.find(w => w.id === workId);
+            const judgeAccounts = workGroups[workId];
+            const judgeNames = judgeAccounts.map(acc => {
+                const judge = judges.find(j => j.account === acc);
+                return judge ? judge.name : acc;
+            }).join(', ');
+            
+            return `
+                <tr>
+                    <td>${work ? work.title : workId}</td>
+                    <td>${judgeNames}</td>
+                    <td>
+                        <button class="btn-secondary btn-sm" onclick="clearAssignment('${workId}')">清除分配</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('❌ 加载分配表格失败:', error);
+        const tbody = document.getElementById('assignmentsTable');
+        tbody.innerHTML = '<tr><td colspan="3" class="empty-state">加载失败: ' + error.message + '</td></tr>';
+    }
 }
 
 // 清除作品的所有分配
-function clearAssignment(workId) {
+async function clearAssignment(workId) {
     if (!confirm('确认清除该作品的所有分配？')) return;
     
-    let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
-    assignments = assignments.filter(a => a.workId !== workId);
-    localStorage.setItem('assignments', JSON.stringify(assignments));
-    
-    alert('分配已清除！');
-    loadAssignmentsTable();
+    try {
+        // 从 Supabase 删除该作品的所有分配
+        const { error } = await storage.supabase
+            .from('assignments')
+            .delete()
+            .eq('work_id', workId);
+        
+        if (error) throw error;
+        
+        alert('✅ 分配已清除！');
+        loadAssignmentsTable();
+    } catch (error) {
+        console.error('❌ 清除分配失败:', error);
+        alert('清除失败: ' + error.message);
+    }
 }
 
 // ========== 实时评分查看 ==========
