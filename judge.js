@@ -354,17 +354,6 @@ async function saveScore() {
         alert('暂存失败: ' + error.message);
     }
 }
-                    score: currentScore,
-                    is_submitted: false
-                }]);
-        }
-        
-        alert('评分已暂存！');
-    } catch (error) {
-        console.error('❌ 暂存失败:', error);
-        alert('暂存失败: ' + error.message);
-    }
-}
 
 // 提交评分
 async function submitScore() {
