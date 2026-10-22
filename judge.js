@@ -225,13 +225,33 @@ function openScoringPanel(workId) {
     // 将扁平的文件字段转换为 files 数组（兼容两种数据结构）
     let workFiles = currentWork.files;
     if (!workFiles && currentWork.file_name) {
-        // 从扁平字段构建 files 数组
-        workFiles = [{
-            name: currentWork.file_name,
-            size: currentWork.file_size,
-            url: currentWork.file_url || currentWork.thumbnail_url,
-            metadata: currentWork.file_metadata || {}
-        }];
+        // 尝试解析 file_metadata JSON
+        let fileMetadata = [];
+        if (currentWork.file_metadata) {
+            try {
+                fileMetadata = JSON.parse(currentWork.file_metadata);
+            } catch (e) {
+                console.warn('无法解析 file_metadata:', e);
+            }
+        }
+        
+        // 如果有多个文件（逗号分隔的 URL），拆分处理
+        const fileUrls = currentWork.file_url ? currentWork.file_url.split(', ') : [];
+        const fileNames = currentWork.file_name.split(', ');
+        const fileSizes = currentWork.file_size ? Array(fileNames.length).fill(currentWork.file_size / fileNames.length) : [];
+        
+        if (fileMetadata.length > 0) {
+            // 使用完整的元数据
+            workFiles = fileMetadata;
+        } else {
+            // 从扁平字段构建 files 数组
+            workFiles = fileNames.map((name, index) => ({
+                name: name,
+                size: fileSizes[index] || 0,
+                url: fileUrls[index] || currentWork.file_url,
+                metadata: {}
+            }));
+        }
     }
     
     // 显示文件列表
@@ -243,18 +263,21 @@ function openScoringPanel(workId) {
         if (isImageWork) {
             // 图片作品：显示可点击预览的缩略图
             filesContainer.innerHTML = `
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; margin-top: 0.5rem;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-top: 0.5rem;">
                     ${workFiles.map((file, index) => {
-                        // 对于测试数据，使用占位图；实际应用中应该是真实图片URL
                         const fileSize = file.size ? (file.size / 1024 / 1024).toFixed(2) : '未知';
-                        const resolution = file.metadata ? `${file.metadata.width}×${file.metadata.height}` : '未知分辨率';
+                        const hasUrl = file.url && file.url !== 'pending_upload';
                         
                         return `
-                            <div class="file-link-preview" onclick="previewImage(${index})" style="cursor: pointer; text-align: center;">
-                                <div style="font-size: 3rem; margin-bottom: 0.5rem;">🖼️</div>
-                                <div style="font-size: 0.9rem; word-break: break-all;">${file.name}</div>
-                                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
-                                    ${fileSize} MB<br>${resolution}
+                            <div class="file-link-preview" onclick="previewImage(${index})" style="cursor: pointer; background: rgba(99, 102, 241, 0.1); padding: 1rem; border-radius: 8px; text-align: center;">
+                                ${hasUrl ? `
+                                    <img src="${file.url}" alt="${file.name}" style="max-width: 100%; max-height: 150px; object-fit: cover; border-radius: 4px; margin-bottom: 0.5rem;">
+                                ` : `
+                                    <div style="font-size: 3rem; margin-bottom: 0.5rem;">🖼️</div>
+                                `}
+                                <div style="font-size: 0.85rem; word-break: break-all; margin-bottom: 0.25rem;">${file.name}</div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                                    ${fileSize} MB
                                 </div>
                                 <div style="font-size: 0.75rem; color: var(--primary); margin-top: 0.5rem;">
                                     👁️ 点击查看大图
@@ -265,24 +288,25 @@ function openScoringPanel(workId) {
                 </div>
             `;
         } else {
-            // 视频作品：显示视频信息
+            // 视频作品：显示视频播放器
             filesContainer.innerHTML = workFiles.map(file => {
                 const fileSize = file.size ? (file.size / 1024 / 1024).toFixed(2) : '未知';
-                const duration = file.metadata && file.metadata.duration ? 
-                    `${Math.floor(file.metadata.duration / 60)}:${Math.floor(file.metadata.duration % 60).toString().padStart(2, '0')}` : 
-                    '未知时长';
-                const resolution = file.metadata ? `${file.metadata.width}×${file.metadata.height}` : '未知分辨率';
+                const hasUrl = file.url && file.url !== 'pending_upload';
                 
                 return `
                     <div style="background: rgba(99, 102, 241, 0.1); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
-                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">🎬</div>
-                        <div><strong>文件名：</strong>${file.name}</div>
-                        <div><strong>文件大小：</strong>${fileSize} MB</div>
-                        <div><strong>分辨率：</strong>${resolution}</div>
-                        <div><strong>时长：</strong>${duration}</div>
-                        <div style="margin-top: 0.5rem; color: var(--warning); font-size: 0.9rem;">
-                            ⚠️ 视频文件需要在本地播放，当前为演示模式
-                        </div>
+                        <div style="font-size: 0.9rem; word-break: break-all; margin-bottom: 0.5rem;"><strong>文件名：</strong>${file.name}</div>
+                        <div style="font-size: 0.85rem; margin-bottom: 0.5rem;"><strong>文件大小：</strong>${fileSize} MB</div>
+                        ${hasUrl ? `
+                            <video controls style="width: 100%; max-height: 400px; border-radius: 4px; margin-top: 0.5rem;">
+                                <source src="${file.url}" type="video/mp4">
+                                您的浏览器不支持视频播放
+                            </video>
+                        ` : `
+                            <div style="margin-top: 0.5rem; color: var(--warning); font-size: 0.9rem;">
+                                ⚠️ 视频文件未上传或链接无效
+                            </div>
+                        `}
                     </div>
                 `;
             }).join('');
@@ -599,9 +623,10 @@ let currentPreviewFiles = [];
 
 // 预览图片
 function previewImage(index) {
-    if (!currentWork || !currentWork.files) return;
+    if (!currentWork) return;
     
-    currentPreviewFiles = currentWork.files;
+    // 使用 workFiles 数组（已经解析好的文件列表）
+    currentPreviewFiles = workFiles || [];
     currentPreviewIndex = index;
     
     showImagePreview();
@@ -620,7 +645,9 @@ function showImagePreview() {
     title.textContent = `${currentWork.title} - 图片预览`;
     
     // 使用真实的base64图片内容
-    if (file.content) {
+    if (file.url && file.url !== 'pending_upload') {
+        img.src = file.url;
+    } else if (file.content) {
         // 有base64内容，直接显示
         img.src = file.content;
     } else {

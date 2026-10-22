@@ -325,14 +325,27 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
             console.log('✅ 选手ID:', contestantId);
         }
         
-        // 2. 处理文件 - 对于Supabase,我们存储文件元数据
-        // 注意:实际文件上传需要Storage Bucket,这里先存储元数据
-        const files = uploadedFiles.map(item => ({
-            name: item.file.name,
-            size: item.file.size,
-            type: item.file.type,
-            metadata: item.metadata
-        }));
+        // 2. 上传文件到 Supabase Storage
+        console.log(' 开始上传文件...');
+        const uploadedFileUrls = [];
+        
+        for (const item of uploadedFiles) {
+            try {
+                const uploadResult = await storage.uploadFile(item.file);
+                uploadedFileUrls.push({
+                    name: item.file.name,
+                    size: item.file.size,
+                    type: item.file.type,
+                    url: uploadResult.url,
+                    path: uploadResult.path,
+                    metadata: item.metadata
+                });
+                console.log('✅ 文件上传成功:', uploadResult.url);
+            } catch (uploadError) {
+                console.error('❌ 文件上传失败:', uploadError);
+                throw new Error(`文件上传失败：${uploadError.message}`);
+            }
+        }
         
         // 3. 准备作品数据
         const workData = {
@@ -340,10 +353,17 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
             category: formData.get('category'),
             group_name: document.getElementById('group')?.value || currentContestant?.group || '',
             title: formData.get('workTitle'),
-            description: formData.get('description') || '',  // 描述字段可能不存在
-            file_name: files.map(f => f.name).join(', '),
-            file_size: files.reduce((sum, f) => sum + f.size, 0),
-            file_url: 'pending_upload', // 后续可以集成Supabase Storage
+            description: formData.get('description') || '',
+            file_name: uploadedFileUrls.map(f => f.name).join(', '),
+            file_size: uploadedFileUrls.reduce((sum, f) => sum + f.size, 0),
+            file_url: uploadedFileUrls.map(f => f.url).join(', '),
+            file_metadata: JSON.stringify(uploadedFileUrls.map(f => ({
+                name: f.name,
+                size: f.size,
+                type: f.type,
+                url: f.url,
+                metadata: f.metadata
+            }))),
             status: 'pending'
         };
         
@@ -362,7 +382,7 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
             title: workData.title,
             workTitle: workData.title,
             description: workData.description,
-            files: files,
+            files: uploadedFileUrls,
             submitTime: new Date().toLocaleString('zh-CN'),
             status: '待审核'
         };

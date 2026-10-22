@@ -76,6 +76,43 @@ class StorageAdapter {
         }
     }
 
+    /**
+     * 上传文件到 Supabase Storage
+     * @param {File} file - 要上传的文件
+     * @param {string} bucket - Storage bucket 名称，默认 'works'
+     * @returns {Promise<{path: string, url: string, name: string, size: number}>}
+     */
+    async uploadFile(file, bucket = 'works') {
+        if (!this.useSupabase || !this.supabase) {
+            throw new Error('Supabase 不可用，无法上传文件');
+        }
+
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${crypto.randomUUID()}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        const { data, error } = await this.supabase.storage
+            .from(bucket)
+            .upload(filePath, file, {
+                cacheControl: '3600',
+                upsert: false
+            });
+
+        if (error) throw error;
+
+        // 获取公开 URL
+        const { data: { publicUrl } } = this.supabase.storage
+            .from(bucket)
+            .getPublicUrl(filePath);
+
+        return {
+            path: filePath,
+            url: publicUrl,
+            name: file.name,
+            size: file.size
+        };
+    }
+
     async listWorks(filters = {}) {
         if (this.useSupabase && this.supabase) {
             let query = this.supabase
