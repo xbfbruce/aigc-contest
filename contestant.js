@@ -786,12 +786,15 @@ window.addEventListener('load', () => {
     const savedContestant = localStorage.getItem('currentContestant');
     if (savedContestant) {
         currentContestant = JSON.parse(savedContestant);
+        console.log(' 检测到缓存的选手登录:', currentContestant.name);
         
-        // 检查是否已提交
+        // 检查是否已提交（从云端查询）
         checkIfSubmitted(currentContestant.name).then(work => {
             if (work) {
+                console.log('✅ 该选手已提交作品，显示提示');
                 showAlreadySubmitted(work);
             } else {
+                console.log('✅ 该选手未提交作品，显示表单');
                 // 未提交,显示表单
                 document.getElementById('loginSection').style.display = 'none';
                 document.getElementById('formSection').style.display = 'block';
@@ -811,6 +814,11 @@ window.addEventListener('load', () => {
                     document.getElementById('groupDisplayGroup').style.display = 'block';
                 }
             }
+        }).catch(error => {
+            console.error('❌ 检查提交状态失败:', error);
+            // 出错时也显示表单，允许选手尝试提交
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('formSection').style.display = 'block';
         });
     }
 });
