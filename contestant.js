@@ -712,12 +712,14 @@ async function checkIfSubmitted(name) {
             return contestantWorks[0]; // 返回第一个作品
         }
         
-        // Fallback: 从localStorage查询
-        const submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
-        const submission = submissions.find(s => s.name === name);
-        if (submission) {
-            console.log('✅ 在localStorage中找到提交记录:', submission.title);
-            return submission;
+        // Fallback: 从 localStorage 查询（仅当 Supabase 不可用时）
+        if (!storage.useSupabase) {
+            const submissions = JSON.parse(localStorage.getItem("submissions") || "[]");
+            const submission = submissions.find(s => s.name === name);
+            if (submission) {
+                console.log("✅ 在 localStorage 中找到提交记录:", submission.title);
+                return submission;
+            }
         }
         
         console.log(' 未找到提交记录');
