@@ -24,12 +24,24 @@ document.getElementById('adminLoginForm').addEventListener('submit', function(e)
 });
 
 // Tab切换
-function switchTab(tabName) {
+function switchTab(tabName, event) {
     // 更新按钮状态
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('active');
     });
-    event.target.classList.add('active');
+    if (event && event.target) {
+        event.target.classList.add('active');
+    } else {
+        // 如果没有 event，根据 tabName 找到对应的按钮
+        const tabMap = {
+            'works': 0, 'specs': 1, 'judges': 2, 'scores': 3,
+            'ranking': 4, 'analytics': 5, 'admin': 6
+        };
+        const buttons = document.querySelectorAll('.tab-btn');
+        if (buttons[tabMap[tabName]]) {
+            buttons[tabMap[tabName]].classList.add('active');
+        }
+    }
     
     // 更新内容显示
     document.querySelectorAll('.tab-content').forEach(content => {
