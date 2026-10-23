@@ -752,8 +752,8 @@ function showAlreadySubmitted(work) {
     infoDiv.innerHTML = `
         <h3 style="margin-bottom: 1rem;">${work.title}</h3>
         <div style="text-align: left; line-height: 2;">
-            <div><strong>作者:</strong> ${work.author || work.name}</div>
-            <div><strong>学校:</strong> ${work.school}</div>
+            <div><strong>作者:</strong> ${work.contestants?.name || work.author || work.name || '未知'}</div>
+            <div><strong>学校:</strong> ${work.contestants?.school || work.school || '未知'}</div>
             <div><strong>分类:</strong> ${categoryText}</div>
             <div><strong>提交时间:</strong> ${submitTime}</div>
             <div><strong>状态:</strong> <span style="color: var(--success);">已提交</span></div>

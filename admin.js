@@ -18,6 +18,7 @@ document.getElementById('adminLoginForm').addEventListener('submit', function(e)
         
         loadSpecsForm();
         loadJudgesTable();
+        loadWorksTable();
     } else {
         alert('账号或密码错误！');
     }
@@ -586,7 +587,7 @@ function deselectAllWorksInTable() {
 }
 
 // 批量删除作品
-function batchDeleteWorks() {
+async function batchDeleteWorks() {
     const selectedCheckboxes = document.querySelectorAll('.work-checkbox:checked');
     
     if (selectedCheckboxes.length === 0) {
@@ -597,35 +598,48 @@ function batchDeleteWorks() {
     const workIds = Array.from(selectedCheckboxes).map(cb => cb.value);
     const workTitles = Array.from(selectedCheckboxes).map(cb => cb.dataset.title);
     
-    if (!confirm(`确认删除以下 ${workIds.length} 个作品？\n\n${workTitles.slice(0, 5).join('\n')}${workTitles.length > 5 ? '\n...' : ''}\n\n此操作将：\n• 删除作品信息\n• 清除相关评分记录\n• 清除相关分配关系\n\n此操作不可恢复！`)) {
+    if (!confirm(`确认删除以下 ${workIds.length} 个作品？\n\n${workTitles.slice(0, 5).join('\n')}${workTitles.length > 5 ? '\n...' : ''}\n\n此操作将：\n• 从云端数据库删除作品\n• 清除相关评分记录\n\n此操作不可恢复！`)) {
         return;
     }
     
-    // 删除作品
-    let works = JSON.parse(localStorage.getItem('works') || '[]');
-    works = works.filter(w => !workIds.includes(w.id));
-    localStorage.setItem('works', JSON.stringify(works));
-    
-    // 删除提交记录
-    let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
-    submissions = submissions.filter(s => !workIds.includes(s.id));
-    localStorage.setItem('submissions', JSON.stringify(submissions));
-    
-    // 删除评分记录
-    let judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
-    judgeScores = judgeScores.filter(s => !workIds.includes(s.workId));
-    localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
-    
-    // 删除分配关系
-    let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
-    assignments = assignments.filter(a => !workIds.includes(a.workId));
-    localStorage.setItem('assignments', JSON.stringify(assignments));
-    
-    alert(`✅ 已成功删除 ${workIds.length} 个作品及相关数据！`);
-    
-    // 刷新列表
-    document.getElementById('selectAllCheckbox').checked = false;
-    loadWorksTable();
+    try {
+        // 从 Supabase 删除（评分记录通过外键级联删除）
+        if (storage.useSupabase && storage.supabase) {
+            const { error, count } = await storage.supabase
+                .from('works')
+                .delete()
+                .in('id', workIds);
+            
+            if (error) throw error;
+            console.log(`✅ 已从云端删除 ${workIds.length} 个作品`);
+        }
+        
+        // 同时清理 localStorage 中的相关数据（兼容性）
+        let works = JSON.parse(localStorage.getItem('works') || '[]');
+        works = works.filter(w => !workIds.includes(w.id));
+        localStorage.setItem('works', JSON.stringify(works));
+        
+        let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+        submissions = submissions.filter(s => !workIds.includes(s.id));
+        localStorage.setItem('submissions', JSON.stringify(submissions));
+        
+        let judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+        judgeScores = judgeScores.filter(s => !workIds.includes(s.workId));
+        localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
+        
+        let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
+        assignments = assignments.filter(a => !workIds.includes(a.workId));
+        localStorage.setItem('assignments', JSON.stringify(assignments));
+        
+        alert(`✅ 已成功删除 ${workIds.length} 个作品及相关数据！`);
+        
+        // 刷新列表
+        document.getElementById('selectAllCheckbox').checked = false;
+        loadWorksTable();
+    } catch (error) {
+        console.error('❌ 批量删除失败:', error);
+        alert('删除失败: ' + error.message + '\n\n请确认已在 Supabase 执行 migration_fix_delete_policy.sql');
+    }
 }
 
 // 删除单个作品
@@ -647,6 +661,12 @@ async function deleteSingleWork(workId) {
         
         // 从Supabase删除
         await storage.deleteWork(workId);
+        
+        // 验证删除是否真正生效（防止RLS策略静默拒绝）
+        const check = await storage.getWork(workId);
+        if (check) {
+            throw new Error('数据库拒绝了删除操作（权限策略问题），请在Supabase执行 migration_fix_delete_policy.sql');
+        }
         console.log('✅ 作品已从云端删除');
         
         // 等待一下确保删除生效
