@@ -137,6 +137,22 @@
         </div>
     </div>
 
+    <!-- 上传进度弹窗 -->
+    <div id="uploadProgressModal" class="upload-progress-modal" style="display: none;">
+        <div class="upload-progress-box">
+            <div class="upload-progress-title" id="uploadProgressTitle">正在上传作品文件</div>
+            <div class="upload-progress-file" id="uploadProgressFile">准备中...</div>
+            <div class="upload-progress-bar">
+                <div class="upload-progress-fill" id="uploadProgressFill" style="width: 0%;"></div>
+            </div>
+            <div class="upload-progress-meta">
+                <span id="uploadProgressText">0%</span>
+                <span id="uploadProgressSpeed"></span>
+            </div>
+            <div class="upload-progress-tip">上传期间请勿关闭或刷新页面</div>
+        </div>
+    </div>
+
     <script src="storage-adapter.js"></script>
     <script src="analytics.js"></script>
     <script src="contestant.js"></script>

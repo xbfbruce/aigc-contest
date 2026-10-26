@@ -974,3 +974,82 @@ tbody tr:hover {
     opacity: 0.6;
     letter-spacing: 0.5px;
 }
+
+/* ============================================
+   上传进度条弹窗
+   ============================================ */
+.upload-progress-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.upload-progress-box {
+    width: min(480px, calc(100vw - 3rem));
+    background: var(--bg-secondary, #1e2130);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    border-radius: 16px;
+    padding: 2rem;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    text-align: center;
+}
+
+.upload-progress-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary, #fff);
+    margin-bottom: 1rem;
+}
+
+.upload-progress-file {
+    font-size: 0.85rem;
+    color: var(--text-secondary, #aab);
+    word-break: break-all;
+    margin-bottom: 1rem;
+    min-height: 1.2em;
+}
+
+.upload-progress-bar {
+    width: 100%;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.upload-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    border-radius: 999px;
+    transition: width 0.2s ease;
+}
+
+.upload-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.6rem;
+    font-size: 0.9rem;
+    color: var(--text-primary, #fff);
+}
+
+.upload-progress-meta #uploadProgressText {
+    font-weight: 700;
+    color: var(--primary, #667eea);
+}
+
+.upload-progress-meta #uploadProgressSpeed {
+    color: var(--text-secondary, #aab);
+}
+
+.upload-progress-tip {
+    margin-top: 1rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary, #aab);
+    opacity: 0.75;
+}

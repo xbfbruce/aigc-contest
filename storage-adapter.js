@@ -125,12 +125,15 @@ class StorageAdapter {
     }
 
     /**
-     * 上传文件到 Supabase Storage（带重试 + XHR 兜底，兼容平板/弱网环境）
+     * 上传文件到 Supabase Storage
+     * 主通道为 XHR（支持实时进度回调，用于进度条），失败后回退 supabase-js fetch 通道；
+     * 两个通道均带重试，兼容平板/弱网环境
      * @param {File} file - 要上传的文件
      * @param {string} bucket - Storage bucket 名称，默认 'works'
+     * @param {Function} [onProgress] - 进度回调 ({loaded, total})，loaded/total 为字节数
      * @returns {Promise<{path: string, url: string, name: string, size: number}>}
      */
-    async uploadFile(file, bucket = 'works') {
+    async uploadFile(file, bucket = 'works', onProgress = null) {
         if (!this.useSupabase || !this.supabase) {
             throw new Error('Supabase 不可用，无法上传文件');
         }
@@ -157,35 +160,35 @@ class StorageAdapter {
             console.warn('⚠️ 无法读取文件内容，将直接使用原始 File 对象:', readErr);
         }
 
-        // 平板(iPad/Safari)上 fetch 大文件偶发 "TypeError: Failed to fetch"，
-        // 这里先重试 supabase-js 上传，失败后改用 XHR 通道再试
         let lastError = null;
+
+        // 主通道：XHR 直传（可上报进度），重试 3 次
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-                const { error } = await this.supabase.storage
-                    .from(bucket)
-                    .upload(filePath, payload, {
-                        cacheControl: '3600',
-                        upsert: true,
-                        contentType: file.type || 'application/octet-stream'
-                    });
-                if (!error) return this._publicResult(bucket, filePath, file);
-                lastError = error;
-                console.warn(`⚠️ 上传尝试 ${attempt} 失败:`, error.message || error);
+                await this._uploadViaXHR(bucket, filePath, payload, file.type, onProgress);
+                return this._publicResult(bucket, filePath, file);
             } catch (e) {
                 lastError = e;
-                console.warn(`⚠️ 上传尝试 ${attempt} 异常:`, e.message || e);
+                console.warn(`⚠️ XHR 上传尝试 ${attempt} 失败:`, e.message || e);
             }
             if (attempt < 3) await new Promise(r => setTimeout(r, 1200 * attempt));
         }
 
-        // XHR 兜底通道（WebKit 中 XHR 与 fetch 走不同代码路径，可绕过部分 fetch 故障）
+        // 兜底通道：supabase-js（fetch，无进度回调）
         try {
-            console.log('🔄 fetch 通道失败，改用 XHR 通道上传...');
-            await this._uploadViaXHR(bucket, filePath, payload, file.type);
-            return this._publicResult(bucket, filePath, file);
-        } catch (xhrError) {
-            console.error('❌ XHR 上传也失败:', xhrError);
+            console.log('🔄 XHR 通道失败，改用 supabase-js 通道上传...');
+            const { error } = await this.supabase.storage
+                .from(bucket)
+                .upload(filePath, payload, {
+                    cacheControl: '3600',
+                    upsert: true,
+                    contentType: file.type || 'application/octet-stream'
+                });
+            if (!error) return this._publicResult(bucket, filePath, file);
+            lastError = error;
+        } catch (e) {
+            lastError = e;
+            console.error('❌ supabase-js 上传也失败:', e);
         }
 
         const sizeMB = (file.size / 1024 / 1024).toFixed(1);
@@ -196,9 +199,9 @@ class StorageAdapter {
     }
 
     /**
-     * 用 XMLHttpRequest 直传 Storage（兜底通道）
+     * 用 XMLHttpRequest 直传 Storage（主通道，支持进度回调）
      */
-    _uploadViaXHR(bucket, filePath, payload, contentType) {
+    _uploadViaXHR(bucket, filePath, payload, contentType, onProgress = null) {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.open('POST', `${this.supabaseUrl}/storage/v1/object/${bucket}/${filePath}`, true);
@@ -208,6 +211,11 @@ class StorageAdapter {
             xhr.setRequestHeader('cache-control', '3600');
             xhr.setRequestHeader('Content-Type', contentType || 'application/octet-stream');
             xhr.timeout = 5 * 60 * 1000;
+            if (onProgress && xhr.upload) {
+                xhr.upload.onprogress = (ev) => {
+                    if (ev.lengthComputable) onProgress({ loaded: ev.loaded, total: ev.total });
+                };
+            }
             xhr.onload = () => {
                 if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response);
                 else reject(new Error(`上传接口返回 ${xhr.status}: ${xhr.responseText.slice(0, 200)}`));

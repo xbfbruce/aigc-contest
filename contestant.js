@@ -327,13 +327,24 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
             console.log('✅ 选手ID:', contestantId);
         }
         
-        // 2. 上传文件到 Supabase Storage
+        // 2. 上传文件到 Supabase Storage（带进度条）
         console.log(' 开始上传文件...');
         const uploadedFileUrls = [];
         
-        for (const item of uploadedFiles) {
+        uploadProgressState.totalBytes = uploadedFiles.reduce((sum, i) => sum + i.file.size, 0);
+        uploadProgressState.doneBytes = 0;
+        uploadProgressState.currentLoaded = 0;
+        uploadProgressState.lastTime = 0;
+        uploadProgressState.lastLoaded = 0;
+        showUploadProgress();
+        setUploadProgressTitle(`正在上传作品文件（共 ${uploadedFiles.length} 个）`);
+        renderUploadProgress();
+        
+        for (let fi = 0; fi < uploadedFiles.length; fi++) {
+            const item = uploadedFiles[fi];
+            setUploadProgressFile(`(${fi + 1}/${uploadedFiles.length}) ${item.file.name}`);
             try {
-                const uploadResult = await storage.uploadFile(item.file);
+                const uploadResult = await storage.uploadFile(item.file, 'works', makeUploadProgressCallback());
                 uploadedFileUrls.push({
                     name: item.file.name,
                     size: item.file.size,
@@ -347,6 +358,10 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
                 console.error('❌ 文件上传失败:', uploadError);
                 throw new Error(`文件上传失败：${uploadError.message}`);
             }
+            uploadProgressState.doneBytes += item.file.size;
+            uploadProgressState.currentLoaded = 0;
+            uploadProgressState.lastTime = 0;
+            renderUploadProgress();
         }
         
         // 3. 准备作品数据
@@ -373,6 +388,11 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
         
         // 4. 提交到Supabase(或localStorage作为fallback)
         //    网络层失败时先查询是否已写入成功，避免重试造成重复提交
+        setUploadProgressTitle('上传完成，正在保存作品信息...');
+        setUploadProgressFile('');
+        document.getElementById('uploadProgressFill').style.width = '100%';
+        document.getElementById('uploadProgressText').textContent = '保存中';
+        document.getElementById('uploadProgressSpeed').textContent = '';
         const result = await withRetry(async () => {
             try {
                 return await storage.submitWork(workData);
@@ -409,6 +429,7 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
         localStorage.setItem('submissions', JSON.stringify(submissions));
         
         // 6. 显示成功消息
+        hideUploadProgress();
         alert('✅ 作品提交成功！\n\n作品已保存到云端数据库。\n管理员可以在后台查看您的作品。');
         
         // 7. 重置表单
@@ -422,6 +443,7 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
         console.error('❌ 提交失败:', error);
         alert('❌ 提交失败: ' + error.message + '\n\n请检查网络连接后重试。');
     } finally {
+        hideUploadProgress();
         submitBtn.disabled = false;
         submitBtn.textContent = originalText;
     }
@@ -441,6 +463,66 @@ function saveDraft() {
     
     localStorage.setItem('draft', JSON.stringify(draft));
     alert('草稿已保存！');
+}
+
+// ========== 上传进度条 ==========
+const uploadProgressState = {
+    totalBytes: 0,     // 所有文件总字节数
+    doneBytes: 0,      // 已完成文件的字节数
+    currentLoaded: 0,  // 当前文件已上传字节数
+    lastLoaded: 0,
+    lastTime: 0
+};
+
+function showUploadProgress() {
+    const modal = document.getElementById('uploadProgressModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function hideUploadProgress() {
+    const modal = document.getElementById('uploadProgressModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function setUploadProgressTitle(text) {
+    const el = document.getElementById('uploadProgressTitle');
+    if (el) el.textContent = text;
+}
+
+function setUploadProgressFile(text) {
+    const el = document.getElementById('uploadProgressFile');
+    if (el) el.textContent = text;
+}
+
+function renderUploadProgress() {
+    const s = uploadProgressState;
+    const loaded = s.doneBytes + s.currentLoaded;
+    const percent = s.totalBytes > 0 ? Math.min(99.9, (loaded / s.totalBytes) * 100) : 0;
+    const fill = document.getElementById('uploadProgressFill');
+    const text = document.getElementById('uploadProgressText');
+    if (fill) fill.style.width = percent.toFixed(1) + '%';
+    if (text) text.textContent = percent.toFixed(0) + '%';
+}
+
+// 生成单文件进度回调：更新当前文件已传字节 + 实时速度
+function makeUploadProgressCallback() {
+    return ({ loaded }) => {
+        const s = uploadProgressState;
+        s.currentLoaded = loaded;
+        const now = Date.now();
+        if (!s.lastTime) { s.lastTime = now; s.lastLoaded = loaded; }
+        const dt = (now - s.lastTime) / 1000;
+        if (dt >= 0.5) {
+            const speedEl = document.getElementById('uploadProgressSpeed');
+            if (speedEl) {
+                const speed = (loaded - s.lastLoaded) / dt / 1024 / 1024;
+                speedEl.textContent = speed > 0 ? `${speed.toFixed(1)} MB/s` : '';
+            }
+            s.lastTime = now;
+            s.lastLoaded = loaded;
+        }
+        renderUploadProgress();
+    };
 }
 
 // 网络请求重试包装：平板/弱网环境下 fetch 偶发 "Failed to fetch / Load failed"，
