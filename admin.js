@@ -1108,6 +1108,7 @@ function renderRankingTable(rankings, groupFilter) {
                         <th>分类</th>
                         <th>评委数</th>
                         <th>平均分</th>
+                        <th>各评委评分</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1122,6 +1123,10 @@ function renderRankingTable(rankings, groupFilter) {
             `<span style="font-weight: bold; font-size: 1.1rem;">${item.avg_score.toFixed(2)}</span>` : 
             '<span style="color: var(--text-secondary);">待评分</span>';
         
+        const judgeDetail = (item.judge_scores && item.judge_scores.length) ?
+            item.judge_scores.map(js => `<div style="font-size: 0.85rem; white-space: nowrap;">${js.judge_account}：<strong>${js.score}</strong></div>`).join('') :
+            '<span style="color: var(--text-secondary);">-</span>';
+        
         html += `
             <tr>
                 <td>${rankDisplay}</td>
@@ -1132,6 +1137,7 @@ function renderRankingTable(rankings, groupFilter) {
                 <td>${getCategoryName(item.category)}</td>
                 <td>${item.judge_count}</td>
                 <td>${scoreDisplay}</td>
+                <td>${judgeDetail}</td>
             </tr>
         `;
     });
@@ -1159,16 +1165,25 @@ async function exportRankingToExcel() {
             return;
         }
         
-        // 构建CSV数据
-        let csv = '\uFEFF'; // BOM for UTF-8
-        csv += '排名,作品标题,作者,学校,组别,分类,评委数,平均分\n';
+        // 评委账号 → 姓名 映射（用于导出表头）
+        let judgeNameMap = {};
+        try {
+            const judges = await storage.listJudges();
+            (judges || []).forEach(j => {
+                if (j && j.account) judgeNameMap[j.account] = j.name || j.account;
+            });
+        } catch (e) {
+            console.warn('⚠️ 读取评委名单失败，导出表头将仅显示账号:', e);
+        }
         
-        // 计算排名（复用loadGroupRanking的逻辑）
+        // 计算排名（复用loadGroupRanking的逻辑），并记录每位评委的单独分数
         const rankings = [];
+        const judgeAccountSet = new Set();
         
         for (const work of filteredWorks) {
             let totalScore = 0;
             let judgeCount = 0;
+            const judgeScores = {};  // 评委账号 -> 该评委给出的分数
             
             if (storage.useSupabase && storage.supabase) {
                 const { data: scores, error } = await storage.supabase
@@ -1180,9 +1195,13 @@ async function exportRankingToExcel() {
                 if (error) throw error;
                 
                 if (scores) {
-                    judgeCount = scores.length;
                     scores.forEach(score => {
-                        totalScore += parseFloat(score.score);
+                        const val = parseFloat(score.score);
+                        totalScore += val;
+                        judgeCount++;
+                        const acc = score.judge_account || '未知评委';
+                        judgeScores[acc] = val;
+                        judgeAccountSet.add(acc);
                     });
                 }
             } else {
@@ -1192,9 +1211,12 @@ async function exportRankingToExcel() {
                     s.workId === work.id && s.isSubmitted
                 );
                 
-                judgeCount = workScores.length;
                 workScores.forEach(score => {
                     totalScore += score.totalScore;
+                    judgeCount++;
+                    const acc = score.judgeAccount || '未知评委';
+                    judgeScores[acc] = score.totalScore;
+                    judgeAccountSet.add(acc);
                 });
             }
             
@@ -1209,7 +1231,8 @@ async function exportRankingToExcel() {
                 group_name: work.group_name || '',
                 category: getCategoryName(work.category),
                 judge_count: judgeCount,
-                avg_score: avgScore
+                avg_score: avgScore,
+                judge_scores: judgeScores
             });
         }
         
@@ -1221,10 +1244,40 @@ async function exportRankingToExcel() {
             return parseFloat(b.avg_score) - parseFloat(a.avg_score);
         });
         
+        // 评委列（所有出现过的评委，按账号排序，保证列顺序稳定）
+        const judgeAccounts = [...judgeAccountSet].sort();
+        const esc = v => `"${String(v === null || v === undefined ? '' : v).replace(/"/g, '""')}"`;
+        
+        // 构建CSV数据：基础列 + 每位评委一列 + 明细列
+        let csv = '\uFEFF'; // BOM for UTF-8
+        const header = ['排名', '作品标题', '作者', '学校', '组别', '分类', '评委数', '平均分']
+            .concat(judgeAccounts.map(acc => esc(`${judgeNameMap[acc] || acc}(${acc})`)))
+            .concat(['各评委评分明细']);
+        csv += header.join(',') + '\n';
+        
         // 添加排名并写入CSV
         rankings.forEach((item, index) => {
             const rank = item.avg_score ? index + 1 : '';
-            csv += `${rank},"${item.title}","${item.author_name}","${item.school}","${item.group_name}","${item.category}",${item.judge_count},${item.avg_score}\n`;
+            const judgeCells = judgeAccounts.map(acc => 
+                item.judge_scores[acc] !== undefined ? item.judge_scores[acc] : ''
+            );
+            const detail = judgeAccounts
+                .filter(acc => item.judge_scores[acc] !== undefined)
+                .map(acc => `${judgeNameMap[acc] || acc}:${item.judge_scores[acc]}`)
+                .join('; ');
+            
+            csv += [
+                rank,
+                esc(item.title),
+                esc(item.author_name),
+                esc(item.school),
+                esc(item.group_name),
+                esc(item.category),
+                item.judge_count,
+                item.avg_score,
+                ...judgeCells,
+                esc(detail)
+            ].join(',') + '\n';
         });
         
         // 下载文件

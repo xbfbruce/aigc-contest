@@ -40,6 +40,8 @@ class StorageAdapter {
             
             // 创建Supabase客户端
             this.supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            this.supabaseUrl = SUPABASE_URL;
+            this.supabaseAnonKey = SUPABASE_ANON_KEY;
             this.useSupabase = true;
             console.log('✅ Supabase已成功初始化');
             console.log('📊 当前模式:', this.useSupabase ? '云端模式 (Supabase)' : '本地模式 (localStorage)');
@@ -111,7 +113,19 @@ class StorageAdapter {
     }
 
     /**
-     * 上传文件到 Supabase Storage
+     * 生成 UUID（兼容不支持 crypto.randomUUID 的旧设备，如 iOS < 15.4）
+     */
+    _uuid() {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+
+    /**
+     * 上传文件到 Supabase Storage（带重试 + XHR 兜底，兼容平板/弱网环境）
      * @param {File} file - 要上传的文件
      * @param {string} bucket - Storage bucket 名称，默认 'works'
      * @returns {Promise<{path: string, url: string, name: string, size: number}>}
@@ -121,30 +135,92 @@ class StorageAdapter {
             throw new Error('Supabase 不可用，无法上传文件');
         }
 
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${crypto.randomUUID()}.${fileExt}`;
-        const filePath = `${fileName}`;
+        // 体积预检：超过 50MB 直接给出明确提示，避免平板上出现难懂的 Failed to fetch
+        const MAX_BYTES = 50 * 1024 * 1024;
+        if (file.size > MAX_BYTES) {
+            const mb = (file.size / 1024 / 1024).toFixed(1);
+            throw new Error(`文件《${file.name}》大小为 ${mb}MB，超过 50MB 上传限制，请压缩后再上传`);
+        }
 
-        const { data, error } = await this.supabase.storage
-            .from(bucket)
-            .upload(filePath, file, {
-                cacheControl: '3600',
-                upsert: false
-            });
+        const fileExt = (file.name.split('.').pop() || 'bin').toLowerCase();
+        const filePath = `${this._uuid()}.${fileExt}`;
 
-        if (error) throw error;
+        // 平板(iPad/Safari)从相册/文件App选中的可能是"占位引用"，直接交给 fetch 上传
+        // 会在传输中途失败并抛出难懂的 "TypeError: Failed to fetch"。
+        // 这里先把文件完整读入内存生成稳定 Blob：读取失败能立刻给出明确提示，
+        // 且后续重试不会因为引用失效而反复失败。
+        let payload = file;
+        try {
+            const buffer = await file.arrayBuffer();
+            payload = new Blob([buffer], { type: file.type || 'application/octet-stream' });
+        } catch (readErr) {
+            console.warn('⚠️ 无法读取文件内容，将直接使用原始 File 对象:', readErr);
+        }
 
-        // 获取公开 URL
-        const { data: { publicUrl } } = this.supabase.storage
-            .from(bucket)
-            .getPublicUrl(filePath);
+        // 平板(iPad/Safari)上 fetch 大文件偶发 "TypeError: Failed to fetch"，
+        // 这里先重试 supabase-js 上传，失败后改用 XHR 通道再试
+        let lastError = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const { error } = await this.supabase.storage
+                    .from(bucket)
+                    .upload(filePath, payload, {
+                        cacheControl: '3600',
+                        upsert: true,
+                        contentType: file.type || 'application/octet-stream'
+                    });
+                if (!error) return this._publicResult(bucket, filePath, file);
+                lastError = error;
+                console.warn(`⚠️ 上传尝试 ${attempt} 失败:`, error.message || error);
+            } catch (e) {
+                lastError = e;
+                console.warn(`⚠️ 上传尝试 ${attempt} 异常:`, e.message || e);
+            }
+            if (attempt < 3) await new Promise(r => setTimeout(r, 1200 * attempt));
+        }
 
-        return {
-            path: filePath,
-            url: publicUrl,
-            name: file.name,
-            size: file.size
-        };
+        // XHR 兜底通道（WebKit 中 XHR 与 fetch 走不同代码路径，可绕过部分 fetch 故障）
+        try {
+            console.log('🔄 fetch 通道失败，改用 XHR 通道上传...');
+            await this._uploadViaXHR(bucket, filePath, payload, file.type);
+            return this._publicResult(bucket, filePath, file);
+        } catch (xhrError) {
+            console.error('❌ XHR 上传也失败:', xhrError);
+        }
+
+        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+        throw new Error(
+            `文件《${file.name}》(${sizeMB}MB) 上传失败：${lastError?.message || lastError || '网络错误'}。` +
+            `请检查网络后重试；若使用平板，请尽量连接 Wi-Fi 并控制文件在 50MB 以内`
+        );
+    }
+
+    /**
+     * 用 XMLHttpRequest 直传 Storage（兜底通道）
+     */
+    _uploadViaXHR(bucket, filePath, payload, contentType) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `${this.supabaseUrl}/storage/v1/object/${bucket}/${filePath}`, true);
+            xhr.setRequestHeader('apikey', this.supabaseAnonKey);
+            xhr.setRequestHeader('Authorization', `Bearer ${this.supabaseAnonKey}`);
+            xhr.setRequestHeader('x-upsert', 'true');
+            xhr.setRequestHeader('cache-control', '3600');
+            xhr.setRequestHeader('Content-Type', contentType || 'application/octet-stream');
+            xhr.timeout = 5 * 60 * 1000;
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response);
+                else reject(new Error(`上传接口返回 ${xhr.status}: ${xhr.responseText.slice(0, 200)}`));
+            };
+            xhr.onerror = () => reject(new Error('XHR 网络错误'));
+            xhr.ontimeout = () => reject(new Error('上传超时'));
+            xhr.send(payload);
+        });
+    }
+
+    _publicResult(bucket, filePath, file) {
+        const { data: { publicUrl } } = this.supabase.storage.from(bucket).getPublicUrl(filePath);
+        return { path: filePath, url: publicUrl, name: file.name, size: file.size };
     }
 
     async listWorks(filters = {}) {

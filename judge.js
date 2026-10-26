@@ -256,6 +256,7 @@ function openScoringPanel(workId) {
     
     // 显示文件列表
     const filesContainer = document.getElementById('detailFiles');
+    currentWorkFiles = workFiles || [];  // 保存到全局，供点击图片预览使用
     if (workFiles && workFiles.length > 0) {
         // 判断是否为图片作品
         const isImageWork = currentWork.category === 'image';
@@ -620,14 +621,19 @@ function logout() {
 
 let currentPreviewIndex = 0;
 let currentPreviewFiles = [];
+let currentWorkFiles = [];  // 当前作品的文件列表（全局，供预览使用）
 
 // 预览图片
 function previewImage(index) {
     if (!currentWork) return;
     
-    // 使用 workFiles 数组（已经解析好的文件列表）
-    currentPreviewFiles = workFiles || [];
-    currentPreviewIndex = index;
+    // 使用 openScoringPanel 解析好的全局文件列表
+    currentPreviewFiles = currentWorkFiles || [];
+    if (!currentPreviewFiles.length) {
+        alert('该作品没有可预览的图片');
+        return;
+    }
+    currentPreviewIndex = Math.min(index, currentPreviewFiles.length - 1);
     
     showImagePreview();
 }
@@ -636,6 +642,7 @@ function previewImage(index) {
 function showImagePreview() {
     const file = currentPreviewFiles[currentPreviewIndex];
     const modal = document.getElementById('imagePreviewModal');
+    if (!file || !modal) return;
     const img = document.getElementById('previewImage');
     const title = document.getElementById('previewImageTitle');
     const info = document.getElementById('previewImageInfo');

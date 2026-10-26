@@ -319,7 +319,9 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
         
         if (!contestantId) {
             console.log('📝 注册/查询选手...');
-            const contestant = await storage.registerContestant(name, school);
+            const contestant = await withRetry(
+                () => storage.registerContestant(name, school), 2, '选手注册'
+            );
             contestantId = contestant.id;
             localStorage.setItem('currentContestantId', contestantId);
             console.log('✅ 选手ID:', contestantId);
@@ -370,7 +372,22 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
         console.log('📤 提交作品到Supabase:', workData);
         
         // 4. 提交到Supabase(或localStorage作为fallback)
-        const result = await storage.submitWork(workData);
+        //    网络层失败时先查询是否已写入成功，避免重试造成重复提交
+        const result = await withRetry(async () => {
+            try {
+                return await storage.submitWork(workData);
+            } catch (err) {
+                const msg = err?.message || String(err);
+                if (/Failed to fetch|Load failed|NetworkError/i.test(msg)) {
+                    const existing = await checkIfSubmitted(name).catch(() => null);
+                    if (existing) {
+                        console.warn('⚠️ 网络异常但作品已写入，直接采用已有记录');
+                        return existing;
+                    }
+                }
+                throw err;
+            }
+        }, 2, '作品提交');
         console.log('✅ 作品提交成功:', result);
         
         // 5. 同时保存到本地提交记录(用于显示历史)
@@ -424,6 +441,25 @@ function saveDraft() {
     
     localStorage.setItem('draft', JSON.stringify(draft));
     alert('草稿已保存！');
+}
+
+// 网络请求重试包装：平板/弱网环境下 fetch 偶发 "Failed to fetch / Load failed"，
+// 对幂等的读请求和注册请求自动重试，避免一次抖动就提交失败
+async function withRetry(fn, retries = 2, label = '操作') {
+    let lastErr;
+    for (let i = 0; i <= retries; i++) {
+        try {
+            return await fn();
+        } catch (err) {
+            lastErr = err;
+            const msg = err?.message || String(err);
+            const isNetwork = /Failed to fetch|Load failed|NetworkError|network|超时/i.test(msg);
+            if (!isNetwork || i === retries) throw err;
+            console.warn(`⚠️ ${label} 网络异常(${msg})，第 ${i + 1} 次重试...`);
+            await new Promise(r => setTimeout(r, 1200 * (i + 1)));
+        }
+    }
+    throw lastErr;
 }
 
 // 加载提交记录
