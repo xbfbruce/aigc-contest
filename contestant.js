@@ -428,8 +428,10 @@ function saveDraft() {
 
 // 加载提交记录
 function loadSubmissions() {
-    const submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
     const tbody = document.getElementById('submissionsList');
+    if (!tbody) return;  // 页面没有提交记录表格，跳过
+    
+    const submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
     
     if (submissions.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="empty-state">暂无提交记录</td></tr>';
