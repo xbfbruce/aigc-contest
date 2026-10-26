@@ -57,14 +57,28 @@ class StorageAdapter {
 
     async submitWork(workData) {
         if (this.useSupabase && this.supabase) {
-            const { data, error } = await this.supabase
-                .from('works')
-                .insert([workData])
-                .select()
-                .single();
+            let payload = { ...workData };
             
-            if (error) throw error;
-            return data;
+            // 最多重试 5 次：若数据库缺少某列(42703)，自动剔除该列后重试，
+            // 保证旧库结构下提交依然成功（file_metadata 等增强列缺失时降级）
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const { data, error } = await this.supabase
+                    .from('works')
+                    .insert([payload])
+                    .select()
+                    .single();
+                
+                if (!error) return data;
+                
+                const missingCol = this._extractMissingColumn(error);
+                if (missingCol && missingCol in payload) {
+                    console.warn(`⚠️ works 表缺少列 "${missingCol}"，已自动剔除后重试`);
+                    delete payload[missingCol];
+                    continue;
+                }
+                throw error;
+            }
+            throw new Error('提交失败：数据库列不匹配，重试次数已用尽');
         } else {
             // Fallback to localStorage
             let works = JSON.parse(localStorage.getItem('works') || '[]');
@@ -74,6 +88,26 @@ class StorageAdapter {
             localStorage.setItem('works', JSON.stringify(works));
             return workData;
         }
+    }
+
+    /**
+     * 从 PostgREST 错误中提取缺失的列名
+     * 例: "Could not find the 'file_metadata' column of 'works' in the schema cache"
+     * 或: "column works.file_metadata does not exist"
+     * @returns {string|null}
+     */
+    _extractMissingColumn(error) {
+        if (!error) return null;
+        const msg = `${error.message || ''} ${error.details || ''}`;
+        let m = msg.match(/Could not find the '([^']+)' column/);
+        if (m) return m[1];
+        m = msg.match(/column [\w".]+\.([\w"]+) does not exist/);
+        if (m) return m[1].replace(/"/g, '');
+        if (error.code === '42703') {
+            m = msg.match(/'([^']+)'/);
+            if (m) return m[1];
+        }
+        return null;
     }
 
     /**
