@@ -19,6 +19,7 @@ document.getElementById('adminLoginForm').addEventListener('submit', function(e)
         loadSpecsForm();
         loadJudgesTable();
         loadWorksTable();
+        initAdminRealtime();  // 开启评分/作品实时推送 + 轮询兜底
     } else {
         alert('账号或密码错误！');
     }
@@ -58,7 +59,7 @@ function switchTab(tabName, event) {
         document.getElementById('judgesTab').classList.add('active');
     } else if (tabName === 'scores') {
         document.getElementById('scoresTab').classList.add('active');
-        refreshScores();
+        loadScoresData();  // 切换页签静默加载，不弹窗
     } else if (tabName === 'ranking') {
         document.getElementById('rankingTab').classList.add('active');
     } else if (tabName === 'analytics') {
@@ -791,36 +792,83 @@ async function rejectWork(workId) {
 
 // ========== 实时评分查看 ==========
 
-// 加载实时评分数据
-function loadScoresData() {
-    const works = JSON.parse(localStorage.getItem('works') || '[]');
-    const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
-    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
+// 加载实时评分数据（云端 scores 表优先，localStorage 兜底）
+async function loadScoresData() {
     const tbody = document.getElementById('scoresTable');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">加载中...</td></tr>';
     
-    if (judgeScores.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无评分记录</td></tr>';
+    let rows = [];
+    
+    try {
+        if (storage.useSupabase && storage.supabase) {
+            const { data: scores, error } = await storage.supabase
+                .from('scores')
+                .select('*')
+                .order('updated_at', { ascending: false });
+            if (error) throw error;
+            
+            const works = await storage.listWorks();
+            const workMap = {};
+            works.forEach(w => { workMap[w.id] = w; });
+            
+            // 评委姓名映射：云端 judges 与本地 localStorage 取并集
+            const judgeNameMap = {};
+            try {
+                (await storage.listJudges()).forEach(j => {
+                    if (j && j.account) judgeNameMap[j.account] = j.name || j.account;
+                });
+            } catch (e) { /* 忽略，继续用账号显示 */ }
+            try {
+                JSON.parse(localStorage.getItem('judges') || '[]').forEach(j => {
+                    if (j && j.account && !judgeNameMap[j.account]) judgeNameMap[j.account] = j.name || j.account;
+                });
+            } catch (e) { /* 忽略 */ }
+            
+            rows = (scores || []).map(s => {
+                const work = workMap[s.work_id] || {};
+                return {
+                    workTitle: work.title || '(作品已删除)',
+                    category: getCategoryName(work.category || ''),
+                    author: work.contestants?.name || work.author || '-',
+                    judgeName: judgeNameMap[s.judge_account] || s.judge_account || '-',
+                    totalScore: parseFloat(s.score) || 0,
+                    saveTime: s.updated_at ? new Date(s.updated_at).toLocaleString('zh-CN') : '-',
+                    status: s.is_submitted ? '已提交' : '暂存'
+                };
+            });
+        } else {
+            // localStorage 兜底
+            const works = JSON.parse(localStorage.getItem('works') || '[]');
+            const judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
+            const judges = JSON.parse(localStorage.getItem('judges') || '[]');
+            
+            judgeScores.forEach(score => {
+                const work = works.find(w => w.id === score.workId);
+                const judge = judges.find(j => j.account === score.judgeAccount);
+                if (work && judge) {
+                    rows.push({
+                        workTitle: work.title,
+                        category: getCategoryName(work.category),
+                        author: work.author,
+                        judgeName: judge.name,
+                        totalScore: score.totalScore,
+                        saveTime: score.saveTime,
+                        status: '已完成'
+                    });
+                }
+            });
+        }
+    } catch (error) {
+        console.error('❌ 加载评分数据失败:', error);
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-state">加载失败: ${error.message}</td></tr>`;
         return;
     }
     
-    // 按作品和评委展开显示
-    const rows = [];
-    judgeScores.forEach(score => {
-        const work = works.find(w => w.id === score.workId);
-        const judge = judges.find(j => j.account === score.judgeAccount);
-        
-        if (work && judge) {
-            rows.push({
-                workTitle: work.title,
-                category: getCategoryName(work.category),
-                author: work.author,
-                judgeName: judge.name,
-                totalScore: score.totalScore,
-                saveTime: score.saveTime,
-                status: '已完成'
-            });
-        }
-    });
+    if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无评分记录</td></tr>';
+        return;
+    }
     
     tbody.innerHTML = rows.map(row => `
         <tr>
@@ -828,16 +876,16 @@ function loadScoresData() {
             <td>${row.category}</td>
             <td>${row.author}</td>
             <td>${row.judgeName}</td>
-            <td><strong style="color: var(--primary); font-size: 1.2rem;">${row.totalScore.toFixed(1)}</strong></td>
+            <td><strong style="color: var(--primary); font-size: 1.2rem;">${(row.totalScore || 0).toFixed(1)}</strong></td>
             <td>${row.saveTime}</td>
-            <td><span class="work-status status-scored">${row.status}</span></td>
+            <td><span class="work-status ${row.status === '已提交' || row.status === '已完成' ? 'status-scored' : 'status-pending'}">${row.status}</span></td>
         </tr>
     `).join('');
 }
 
-// 刷新评分数据
-function refreshScores() {
-    loadScoresData();
+// 刷新评分数据（手动按钮）
+async function refreshScores() {
+    await loadScoresData();
     alert('数据已刷新！');
 }
 
@@ -1315,5 +1363,61 @@ async function exportRankingToExcel() {
     } catch (error) {
         console.error('❌ 导出失败:', error);
         alert('导出失败: ' + error.message);
+    }
+}
+
+// ============================================
+// 实时数据推送（Supabase Realtime + 轮询兜底）
+// ============================================
+let liveRefreshTimer = null;
+let pollTimer = null;
+let realtimeChannel = null;
+
+// 当前激活的页签
+function currentActiveTab() {
+    const map = ['works', 'specs', 'judges', 'scores', 'ranking', 'analytics', 'admin'];
+    const buttons = [...document.querySelectorAll('.tab-btn')];
+    const idx = buttons.findIndex(b => b.classList.contains('active'));
+    return idx >= 0 ? map[idx] : null;
+}
+
+// 防抖刷新当前页签数据
+function scheduleLiveRefresh(reason) {
+    clearTimeout(liveRefreshTimer);
+    liveRefreshTimer = setTimeout(() => {
+        const tab = currentActiveTab();
+        console.log(`🔄 检测到数据变化(${reason})，刷新页签:`, tab);
+        if (tab === 'scores') loadScoresData();
+        else if (tab === 'works') loadWorksTable();
+        else if (tab === 'ranking') loadGroupRanking();
+        else if (tab === 'analytics') refreshAnalytics();
+    }, 800);
+}
+
+// 初始化 Realtime 订阅 + 轮询兜底
+function initAdminRealtime() {
+    // Realtime 推送（需 Supabase 开启 scores/works 表的 Realtime）
+    if (storage.useSupabase && storage.supabase && !realtimeChannel) {
+        try {
+            realtimeChannel = storage.supabase
+                .channel('admin-live-changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' },
+                    p => scheduleLiveRefresh('scores:' + p.eventType))
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'works' },
+                    p => scheduleLiveRefresh('works:' + p.eventType))
+                .subscribe(status => console.log('📡 Realtime 状态:', status));
+        } catch (e) {
+            console.warn('⚠️ Realtime 订阅失败，仅用轮询:', e);
+        }
+    }
+    
+    // 轮询兜底：每 20 秒静默刷新当前页签（即使 Realtime 未开通也保持较新）
+    if (!pollTimer) {
+        pollTimer = setInterval(() => {
+            const tab = currentActiveTab();
+            if (tab === 'scores') loadScoresData();
+            else if (tab === 'works') loadWorksTable();
+            else if (tab === 'ranking') loadGroupRanking();
+        }, 20000);
     }
 }
