@@ -769,11 +769,21 @@ class StorageAdapter {
             
             if (countError) throw countError;
             
-            // 获取各页面访问量
-            const { data: pageStats, error: pageError } = await this.supabase
+            // 获取各页面访问量（客户端聚合，避免依赖数据库 RPC 函数）
+            const { data: rows, error: pageError } = await this.supabase
                 .from('page_views')
-                .select('page_name, count')
-                .rpc('count_page_views_by_name');
+                .select('page_name');
+            
+            if (pageError) throw pageError;
+            
+            const pageMap = {};
+            (rows || []).forEach(r => {
+                const key = r.page_name || 'unknown';
+                pageMap[key] = (pageMap[key] || 0) + 1;
+            });
+            const pageStats = Object.entries(pageMap)
+                .map(([page_name, count]) => ({ page_name, count }))
+                .sort((a, b) => b.count - a.count);
             
             // 获取今日访问量
             const today = new Date();

@@ -911,9 +911,25 @@ async function refreshAnalytics() {
         const works = await storage.listWorks();
         document.getElementById('submissionCount').textContent = works.length;
         
-        // 获取评委数量
-        const judges = await storage.listJudges();
-        document.getElementById('judgeCount').textContent = judges.length;
+        // 获取评委数量（评委账号由管理端存于 localStorage，Supabase judges 表为云端副本，
+        // 两者取并集，避免任一为空时显示 0）
+        let cloudJudges = [];
+        try {
+            cloudJudges = await storage.listJudges();
+        } catch (judgeErr) {
+            console.warn('⚠️ 读取云端评委失败:', judgeErr.message);
+        }
+        let localJudges = [];
+        try {
+            localJudges = JSON.parse(localStorage.getItem('judges') || '[]');
+        } catch (e) {
+            localJudges = [];
+        }
+        const judgeAccounts = new Set();
+        [...cloudJudges, ...localJudges].forEach(j => {
+            if (j && j.account) judgeAccounts.add(j.account);
+        });
+        document.getElementById('judgeCount').textContent = judgeAccounts.size;
         
         // 更新各页面访问量表格
         const pageViewsTable = document.getElementById('pageViewsTable');

@@ -703,6 +703,82 @@ function showImagePreview() {
     
     // 显示模态框
     modal.style.display = 'flex';
+    resetImageView();  // 切换图片时重置缩放与位置
+}
+
+// ========== 图片缩放 / 拖拽平移 ==========
+const imageView = { scale: 1, tx: 0, ty: 0, dragging: false, startX: 0, startY: 0 };
+
+function applyImageView() {
+    const img = document.getElementById('previewImage');
+    if (!img) return;
+    img.style.transform = `translate(${imageView.tx}px, ${imageView.ty}px) scale(${imageView.scale})`;
+    const level = document.getElementById('zoomLevel');
+    if (level) level.textContent = Math.round(imageView.scale * 100) + '%';
+}
+
+// 按钮缩放：delta 为正放大、为负缩小
+function zoomImage(delta) {
+    imageView.scale = Math.min(8, Math.max(0.2, +(imageView.scale + delta).toFixed(2)));
+    if (imageView.scale <= 1) { imageView.tx = 0; imageView.ty = 0; }
+    applyImageView();
+}
+
+function resetImageView() {
+    imageView.scale = 1;
+    imageView.tx = 0;
+    imageView.ty = 0;
+    applyImageView();
+}
+
+function initImageZoomPan() {
+    const stage = document.getElementById('previewStage');
+    if (!stage || stage.dataset.zoomInit) return;
+    stage.dataset.zoomInit = '1';
+
+    // 滚轮缩放
+    stage.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        zoomImage(e.deltaY < 0 ? 0.2 : -0.2);
+    }, { passive: false });
+
+    // 双击在 1x 与 2.5x 之间切换
+    stage.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        if (imageView.scale > 1.05) resetImageView();
+        else { imageView.scale = 2.5; applyImageView(); }
+    });
+
+    // 拖拽平移
+    stage.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.preview-zoom-bar')) return;
+        imageView.dragging = true;
+        imageView.startX = e.clientX - imageView.tx;
+        imageView.startY = e.clientY - imageView.ty;
+        stage.classList.add('dragging');
+        if (stage.setPointerCapture) stage.setPointerCapture(e.pointerId);
+    });
+    stage.addEventListener('pointermove', (e) => {
+        if (!imageView.dragging) return;
+        imageView.tx = e.clientX - imageView.startX;
+        imageView.ty = e.clientY - imageView.startY;
+        applyImageView();
+    });
+    const endDrag = (e) => {
+        imageView.dragging = false;
+        stage.classList.remove('dragging');
+        if (stage.hasPointerCapture && stage.hasPointerCapture(e.pointerId)) {
+            stage.releasePointerCapture(e.pointerId);
+        }
+    };
+    stage.addEventListener('pointerup', endDrag);
+    stage.addEventListener('pointercancel', endDrag);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initImageZoomPan);
+} else {
+    initImageZoomPan();
 }
 
 // 关闭图片预览

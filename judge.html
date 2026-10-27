@@ -135,15 +135,23 @@
         </div>
     </div>
 
-    <!-- 图片预览模态框 -->
+    <!-- 图片预览模态框（支持滚轮缩放 / 拖拽平移 / 双击放大） -->
     <div id="imagePreviewModal" class="modal" style="display: none;" onclick="closeImagePreview()">
         <div class="modal-content image-preview-content" onclick="event.stopPropagation()">
             <div class="modal-header">
                 <h3 id="previewImageTitle">图片预览</h3>
                 <button onclick="closeImagePreview()" class="close-btn">×</button>
             </div>
-            <div class="preview-container">
-                <img id="previewImage" src="" alt="预览图片">
+            <div class="preview-container" id="previewContainer">
+                <div class="preview-stage" id="previewStage">
+                    <img id="previewImage" src="" alt="预览图片" draggable="false">
+                    <div class="preview-zoom-bar" onclick="event.stopPropagation()">
+                        <button onclick="zoomImage(-0.2)" class="zoom-btn" title="缩小">−</button>
+                        <span id="zoomLevel" class="zoom-level">100%</span>
+                        <button onclick="zoomImage(0.2)" class="zoom-btn" title="放大">＋</button>
+                        <button onclick="resetImageView()" class="zoom-btn zoom-reset" title="恢复适应窗口">适应</button>
+                    </div>
+                </div>
                 <div class="preview-info" id="previewImageInfo"></div>
             </div>
             <div class="preview-actions">

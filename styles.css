@@ -1053,3 +1053,78 @@ tbody tr:hover {
     color: var(--text-secondary, #aab);
     opacity: 0.75;
 }
+
+/* ============================================
+   图片预览缩放 / 拖拽
+   ============================================ */
+.preview-stage {
+    position: relative;
+    width: 100%;
+    height: min(70vh, 640px);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 8px;
+    cursor: grab;
+    touch-action: none;
+}
+
+.preview-stage.dragging {
+    cursor: grabbing;
+}
+
+.preview-stage img {
+    max-width: 96%;
+    max-height: 96%;
+    object-fit: contain;
+    transform-origin: center center;
+    transition: transform 0.08s linear;
+    user-select: none;
+    -webkit-user-drag: none;
+    will-change: transform;
+}
+
+.preview-zoom-bar {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.65);
+    padding: 6px 12px;
+    border-radius: 999px;
+    z-index: 5;
+}
+
+.zoom-btn {
+    min-width: 32px;
+    height: 32px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border-radius: 8px;
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.zoom-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.zoom-btn.zoom-reset {
+    font-size: 0.8rem;
+    padding: 0 10px;
+}
+
+.zoom-level {
+    min-width: 48px;
+    text-align: center;
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
