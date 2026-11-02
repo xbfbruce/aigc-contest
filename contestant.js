@@ -37,7 +37,7 @@ function loadAndDisplaySpecs() {
         imageList.innerHTML = `
             <li><strong>格式要求：</strong>${(specs.image.formats || ['JPG', 'PNG']).join('/')}格式</li>
             <li><strong>分辨率：</strong>≥ ${specs.image.minDPI || 300} DPI</li>
-            <li><strong>文件大小：</strong>单张不超过${specs.image.maxSize || 1}MB（确保质量）</li>
+            <li><strong>文件大小：</strong>单张不小于${specs.image.minSize || 0.1}MB（确保质量）</li>
             <li><strong>作品形式：</strong>可以是单张图、组图、连环画</li>
             <li><strong>数量限制：</strong>最多上传${specs.image.maxFiles || 5}张图片</li>
         `;
@@ -78,11 +78,11 @@ function updateUploadHint() {
     } else if (category === 'image' && specs.image) {
         const formats = specs.image.formats.join(', ');
         const minDPI = specs.image.minDPI;
-        const maxSize = specs.image.maxSize || 1;
+        const minSize = specs.image.minSize || 0.1;
         const maxFiles = specs.image.maxFiles || 5;
         
         uploadText.textContent = `点击上传${formats}图片（可多选，最多${maxFiles}张）`;
-        uploadHint2.textContent = `要求：分辨率≥${minDPI}DPI，单张不超过${maxSize}MB，支持连环画等多张图片`;
+        uploadHint2.textContent = `要求：分辨率≥${minDPI}DPI，单张不小于${minSize}MB，支持连环画等多张图片`;
         fileInput.accept = '.' + specs.image.formats.join(',.').toLowerCase();
         fileInput.multiple = true;
     } else {
@@ -181,8 +181,8 @@ async function validateImageFile(file) {
         return { valid: false, error: `图片格式不正确，支持：${imageConfig.formats.join(', ')}` };
     }
     
-    // 检查文件大小 - 最小1MB(确保高质量)
-    const minSizeMB = imageConfig.minSize || 1;
+    // 检查文件大小 - 最小0.1MB(确保高质量)
+    const minSizeMB = imageConfig.minSize || 0.1;
     if (file.size < minSizeMB * 1024 * 1024) {
         const sizeMB = (file.size / 1024 / 1024).toFixed(2);
         return { valid: false, error: `文件太小：当前${sizeMB}MB，单张至少需要${minSizeMB}MB（确保高质量）` };

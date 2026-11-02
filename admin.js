@@ -92,7 +92,7 @@ function loadSpecsForm() {
         document.getElementById('imageMinDPI').value = specs.image.minDPI || 300;
         document.getElementById('imageMinWidth').value = specs.image.minWidth || 2400;
         document.getElementById('imageMinHeight').value = specs.image.minHeight || 1800;
-        document.getElementById('imageMinSize').value = specs.image.minSize || 1;
+        document.getElementById('imageMinSize').value = specs.image.minSize || 0.1;
         document.getElementById('imageMaxFiles').value = specs.image.maxFiles || 5;
     }
     
@@ -911,6 +911,19 @@ window.addEventListener('load', () => {
             descriptionMinLength: 50,
             maxFilesPerSubmission: 5
         }));
+    }
+    
+    // 历史配置迁移：图片最小文件大小由 1MB 调整为 0.1MB
+    // （旧浏览器 localStorage 里可能存着 minSize=1，这里统一纠正）
+    try {
+        const storedSpecs = JSON.parse(localStorage.getItem('submissionSpecs') || '{}');
+        if (storedSpecs.image && storedSpecs.image.minSize === 1) {
+            storedSpecs.image.minSize = 0.1;
+            localStorage.setItem('submissionSpecs', JSON.stringify(storedSpecs));
+            console.log('ℹ️ 已将图片最小文件大小配置从 1MB 迁移为 0.1MB');
+        }
+    } catch (e) {
+        console.warn('⚠️ 规格配置迁移失败:', e);
     }
     
     // 初始化评分项配置
