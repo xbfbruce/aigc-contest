@@ -443,7 +443,7 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
             description: workData.description,
             files: uploadedFileUrls,
             submitTime: new Date().toLocaleString('zh-CN'),
-            status: '待审核'
+            status: '已提交'
         };
         
         let submissions = JSON.parse(localStorage.getItem('submissions') || '[]');

@@ -729,7 +729,7 @@ async function loadWorksTable() {
         const pending = works.filter(w => w.status === 'pending').length;
         const reviewing = works.filter(w => w.status === 'reviewing').length;
         const scored = works.filter(w => w.status === 'scored').length;
-        document.getElementById('worksStats').textContent = `总计: ${total} | 待审核: ${pending} | 评审中: ${reviewing} | 已评分: ${scored}`;
+        document.getElementById('worksStats').textContent = `总计: ${total} | 未评分: ${pending} | 评审中: ${reviewing} | 已评分: ${scored}`;
         
         if (works.length === 0) {
             tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无作品</td></tr>';
@@ -739,7 +739,7 @@ async function loadWorksTable() {
         tbody.innerHTML = works.map(work => {
             const statusClass = work.status === 'scored' ? 'status-scored' : 
                                work.status === 'reviewing' ? 'status-pending' : 'status-pending';
-            const statusText = work.status === 'pending' ? '待审核' : 
+            const statusText = work.status === 'pending' ? '未评分' : 
                               work.status === 'reviewing' ? '评审中' : '已评分';
             
             // 从关联数据获取选手信息
@@ -944,52 +944,6 @@ async function viewWorkDetail(workId) {
     } catch (error) {
         console.error('❌ 获取作品详情失败:', error);
         alert('获取作品详情失败: ' + error.message);
-    }
-}
-
-// 通过作品
-async function approveWork(workId) {
-    if (!confirm('确认通过该作品？')) return;
-    
-    try {
-        // 更新Supabase中的作品状态
-        const { error } = await storage.supabase
-            .from('works')
-            .update({ status: 'reviewing' })
-            .eq('id', workId);
-        
-        if (error) throw error;
-        
-        alert('作品已通过审核！');
-        loadWorksTable();
-    } catch (error) {
-        console.error('❌ 通过作品失败:', error);
-        alert('操作失败: ' + error.message);
-    }
-}
-
-// 驳回作品
-async function rejectWork(workId) {
-    const reason = prompt('请输入驳回理由：');
-    if (!reason) return;
-    
-    try {
-        // 更新Supabase中的作品状态
-        const { error } = await storage.supabase
-            .from('works')
-            .update({ 
-                status: 'pending',
-                description: reason  // 将驳回理由存储在description字段
-            })
-            .eq('id', workId);
-        
-        if (error) throw error;
-        
-        alert('作品已驳回！');
-        loadWorksTable();
-    } catch (error) {
-        console.error('❌ 驳回作品失败:', error);
-        alert('操作失败: ' + error.message);
     }
 }
 

@@ -113,7 +113,9 @@ USING (true);
 -- 配置变更实时推送到已打开的管理端 / 选手端页面
 DO $$
 BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE configs;
+    IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.configs;
+    END IF;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -123,3 +125,4 @@ END $$;
 -- ============================================
 -- SELECT policyname, cmd, roles FROM pg_policies WHERE tablename IN ('judges','configs');
 -- SELECT key, updated_at FROM configs ORDER BY key;
+-- SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime';

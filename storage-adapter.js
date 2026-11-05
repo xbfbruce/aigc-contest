@@ -1178,54 +1178,6 @@ class StorageAdapter {
     }
 
     // ============================================
-    // Configs 操作
-    // ============================================
-
-    async getConfigs() {
-        if (this.useSupabase && this.supabase) {
-            const { data, error } = await this.supabase
-                .from('configs')
-                .select('*');
-            
-            if (error) throw error;
-            
-            const configs = {};
-            (data || []).forEach(row => {
-                configs[row.key] = row.value;
-            });
-            
-            return configs;
-        } else {
-            // 从localStorage读取或使用默认值
-            return {
-                submission_specs: JSON.parse(localStorage.getItem('submissionSpecs') || '{}'),
-                contest_info: JSON.parse(localStorage.getItem('contestInfo') || '{}')
-            };
-        }
-    }
-
-    async updateConfig(key, value) {
-        if (this.useSupabase && this.supabase) {
-            const { data, error } = await this.supabase
-                .from('configs')
-                .upsert({ key, value, updated_at: new Date().toISOString() })
-                .select()
-                .single();
-            
-            if (error) throw error;
-            return data;
-        } else {
-            localStorage.setItem(key, JSON.stringify(value));
-            return { key, value };
-        }
-    }
-
-    async getConfig(key) {
-        const configs = await this.getConfigs();
-        return configs[key];
-    }
-
-    // ============================================
     // Helper Functions
     // ============================================
 
