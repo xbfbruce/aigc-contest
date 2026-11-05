@@ -16,13 +16,10 @@ const cloudConfigReady = (async () => {
     }
 })();
 
-// 获取当前配置（云端刷新后的本机缓存）
+// 获取当前配置（云端刷新后的本机缓存 + 出厂默认值兜底）
 function getCurrentSpecs() {
-    if (typeof storage !== 'undefined' && typeof storage.getCachedConfig === 'function') {
-        const cached = storage.getCachedConfig('submissionSpecs');
-        if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) {
-            return cached;
-        }
+    if (typeof storage !== 'undefined' && typeof storage.getSubmissionSpecs === 'function') {
+        return storage.getSubmissionSpecs();
     }
     try {
         return JSON.parse(localStorage.getItem('submissionSpecs') || '{}');

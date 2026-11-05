@@ -754,6 +754,53 @@ class StorageAdapter {
     }
 
     /**
+     * 投稿规格的出厂默认值。
+     * 任何设备在云端还没有配置时，选手端也要能看到完整的参赛要求，
+     * 因此这里给出一份与当前赛事标准一致的兜底值（图片 ≥0.1MB）。
+     */
+    get DEFAULT_SUBMISSION_SPECS() {
+        return {
+            video: {
+                enabled: true,
+                formats: ['MP4'],
+                minWidth: 1920,
+                minHeight: 1080,
+                maxDuration: 180,
+                maxSize: 100,
+                subtitleRequired: true
+            },
+            image: {
+                enabled: true,
+                formats: ['JPG', 'PNG', 'JPEG'],
+                minDPI: 300,
+                minWidth: 2400,
+                minHeight: 1800,
+                minSize: 0.1,
+                maxFiles: 5
+            },
+            deadline: '2026-12-31 23:59',
+            maxSubmissionsPerCategory: 1,
+            descriptionMinLength: 50
+        };
+    }
+
+    /**
+     * 读取投稿规格：云端/本机配置与出厂默认值合并，
+     * 保证任何设备上都不会出现「要求空白」的情况
+     */
+    getSubmissionSpecs() {
+        const cached = this.getCachedConfig('submissionSpecs') || {};
+        const defaults = this.DEFAULT_SUBMISSION_SPECS;
+
+        return {
+            ...defaults,
+            ...cached,
+            video: { ...defaults.video, ...(cached.video || {}) },
+            image: { ...defaults.image, ...(cached.image || {}) }
+        };
+    }
+
+    /**
      * 从云端拉取配置并刷新本机缓存
      */
     async refreshCloudConfig() {

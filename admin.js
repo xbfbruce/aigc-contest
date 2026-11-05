@@ -85,12 +85,13 @@ function switchTab(tabName, event) {
 
 // 加载作品规格配置
 function loadSpecsForm() {
-    const specs = storage.getCachedConfig('submissionSpecs') || {};
+    // 与出厂默认值合并，保证全新设备上表单也是完整的当前标准
+    const specs = storage.getSubmissionSpecs();
     
     // 视频配置
     if (specs.video) {
         document.getElementById('enableVideo').checked = specs.video.enabled !== false;
-        document.getElementById('videoFormats').value = specs.video.formats || 'MP4';
+        document.getElementById('videoFormats').value = (specs.video.formats || ['MP4']).join(', ');
         document.getElementById('videoMinWidth').value = specs.video.minWidth || 1920;
         document.getElementById('videoMinHeight').value = specs.video.minHeight || 1080;
         document.getElementById('videoMaxDuration').value = specs.video.maxDuration || 180;
@@ -101,7 +102,7 @@ function loadSpecsForm() {
     // 图像配置
     if (specs.image) {
         document.getElementById('enableImage').checked = specs.image.enabled !== false;
-        document.getElementById('imageFormats').value = specs.image.formats || 'JPG, PNG, JPEG';
+        document.getElementById('imageFormats').value = (specs.image.formats || ['JPG', 'PNG', 'JPEG']).join(', ');
         document.getElementById('imageMinDPI').value = specs.image.minDPI || 300;
         document.getElementById('imageMinWidth').value = specs.image.minWidth || 2400;
         document.getElementById('imageMinHeight').value = specs.image.minHeight || 1800;
