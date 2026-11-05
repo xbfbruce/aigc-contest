@@ -685,13 +685,196 @@ class StorageAdapter {
     _friendlyCloudError(error) {
         if (!error) return '未知错误';
         const msg = error.message || String(error);
+        if (error.code === 'PGRST205' || /Could not find the table/i.test(msg)) {
+            return '云端数据表尚未创建：请在 Supabase SQL Editor 执行 migration_cloud_accounts_and_config.sql';
+        }
         if (error.code === '42501' || /row-level security/i.test(msg)) {
-            return '云端权限未开通：请在 Supabase SQL Editor 执行 migration_fix_judges_policy.sql';
+            return '云端权限未开通：请在 Supabase SQL Editor 执行 migration_cloud_accounts_and_config.sql';
         }
         if (/Failed to fetch|Load failed|NetworkError|timeout/i.test(msg)) {
             return '网络异常，无法连接云端';
         }
         return msg;
+    }
+
+    // ============================================
+    // 站点配置（投稿规格 / 管理员账号 / 评分项）
+    // 云端 site_config 表为准，localStorage 作为缓存与离线兜底
+    // ============================================
+
+    get CONFIG_KEYS() {
+        return ['submissionSpecs', 'adminConfig', 'scoringItems'];
+    }
+
+    _readLocalConfig(key) {
+        try {
+            const raw = localStorage.getItem(key);
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            console.warn(`⚠️ 解析本地配置 ${key} 失败:`, e);
+            return null;
+        }
+    }
+
+    /**
+     * 读取配置（同步，取自 refreshCloudConfig 刷新后的本机缓存）
+     */
+    getConfig(key) {
+        return this._readLocalConfig(key);
+    }
+
+    _writeLocalConfig(key, value) {
+        try {
+            localStorage.setItem(key, JSON.stringify(value));
+        } catch (e) {
+            console.warn(`⚠️ 写入本地配置 ${key} 失败:`, e);
+        }
+    }
+
+    /**
+     * 从云端拉取全部站点配置并刷新本机缓存
+     * 页面启动时调用一次，之后的同步读取即可拿到最新配置
+     */
+    async refreshCloudConfig() {
+        if (!(this.useSupabase && this.supabase)) {
+            return { ok: false, reason: '当前为 localStorage 模式' };
+        }
+
+        try {
+            const { data, error } = await this.supabase
+                .from('site_config')
+                .select('key, value, updated_at');
+
+            if (error) throw error;
+
+            const rows = data || [];
+            this._cloudConfigKeys = new Set(rows.map(r => r.key));
+
+            rows.forEach(row => {
+                if (!row || !row.key || row.value === null || row.value === undefined) return;
+                this._writeLocalConfig(row.key, row.value);
+            });
+
+            console.log(`✅ 已同步云端站点配置：${rows.map(r => r.key).join(', ') || '(空)'}`);
+            return { ok: true, updated: rows.length, cloudKeys: [...this._cloudConfigKeys] };
+        } catch (error) {
+            const reason = this._friendlyCloudError(error);
+            console.warn('⚠️ 读取云端站点配置失败，使用本机缓存:', reason);
+            return { ok: false, reason };
+        }
+    }
+
+    /**
+     * 保存配置：云端 upsert + 本机缓存
+     * adminConfig 上传云端时只保存密码哈希，不保存明文
+     */
+    async saveConfig(key, value) {
+        // 本机缓存始终保留完整值（含明文密码），保证离线可用
+        this._writeLocalConfig(key, value);
+
+        if (!(this.useSupabase && this.supabase)) {
+            return { syncedToCloud: false, cloudError: '当前为 localStorage 模式，配置只保存在本设备' };
+        }
+
+        try {
+            const payload = key === 'adminConfig' ? await this._hashAdminConfig(value) : value;
+            const { error } = await this.supabase
+                .from('site_config')
+                .upsert([{ key, value: payload, updated_at: new Date().toISOString() }]);
+
+            if (error) throw error;
+            if (this._cloudConfigKeys) this._cloudConfigKeys.add(key);
+            return { syncedToCloud: true };
+        } catch (error) {
+            const cloudError = this._friendlyCloudError(error);
+            console.error(`❌ 云端保存配置 ${key} 失败:`, error);
+            return { syncedToCloud: false, cloudError };
+        }
+    }
+
+    async _hashAdminConfig(cfg) {
+        const out = { account: (cfg && cfg.account) || 'admin' };
+        if (cfg && cfg.password) {
+            out.passwordHash = await this.hashPassword(cfg.password);
+        } else if (cfg && cfg.passwordHash) {
+            out.passwordHash = cfg.passwordHash;
+        }
+        return out;
+    }
+
+    /**
+     * 删除配置（恢复默认时使用）：云端行 + 本机缓存一并清除
+     */
+    async deleteConfig(key) {
+        localStorage.removeItem(key);
+        if (!(this.useSupabase && this.supabase)) {
+            return { syncedToCloud: false, cloudError: '当前为 localStorage 模式' };
+        }
+        try {
+            const { error } = await this.supabase
+                .from('site_config')
+                .delete()
+                .eq('key', key);
+            if (error) throw error;
+            if (this._cloudConfigKeys) this._cloudConfigKeys.delete(key);
+            return { syncedToCloud: true };
+        } catch (error) {
+            return { syncedToCloud: false, cloudError: this._friendlyCloudError(error) };
+        }
+    }
+
+    /**
+     * 把本机已有、但云端还缺失的配置补传到云端
+     * 用于第一次启用云端配置时的历史数据迁移
+     */
+    async syncLocalConfigToCloud() {
+        if (!(this.useSupabase && this.supabase)) {
+            return { cloudAvailable: false, synced: 0, skipped: 0 };
+        }
+
+        let cloudKeys = new Set();
+        try {
+            const { data, error } = await this.supabase.from('site_config').select('key');
+            if (error) throw error;
+            cloudKeys = new Set((data || []).map(r => r.key));
+            this._cloudConfigKeys = cloudKeys;
+        } catch (error) {
+            return { cloudAvailable: false, synced: 0, skipped: 0, error: this._friendlyCloudError(error) };
+        }
+
+        let synced = 0;
+        const errors = [];
+        for (const key of this.CONFIG_KEYS) {
+            if (cloudKeys.has(key)) continue;
+            const local = this._readLocalConfig(key);
+            if (!local) continue;
+            const result = await this.saveConfig(key, local);
+            if (result.syncedToCloud) synced++;
+            else errors.push(`${key}：${result.cloudError}`);
+        }
+
+        return { cloudAvailable: true, synced, errors };
+    }
+
+    /**
+     * 管理员登录校验：同时兼容明文密码（旧本机数据）与密码哈希（云端数据）
+     * @returns {Promise<{account:string, source:string}|null>}
+     */
+    async loginAdmin(account, password) {
+        const hash = await this.hashPassword(password);
+        const candidates = [];
+
+        const cfg = this._readLocalConfig('adminConfig');
+        if (cfg) candidates.push({ cfg, source: cfg.passwordHash ? 'cloud' : 'local' });
+        // 全新环境（无任何配置）时保留出厂默认，避免管理端被锁死
+        candidates.push({ cfg: { account: 'admin', password: 'admin123' }, source: 'default' });
+
+        for (const item of candidates) {
+            if (!item.cfg || item.cfg.account !== account) continue;
+            if (item.cfg.password && item.cfg.password === password) return { account, source: item.source };
+            if (item.cfg.passwordHash && item.cfg.passwordHash === hash) return { account, source: item.source };
+        }
+        return null;
     }
 
     // ============================================

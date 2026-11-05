@@ -1,27 +1,39 @@
 // 管理员登录
 let currentAdmin = null;
 
-document.getElementById('adminLoginForm').addEventListener('submit', function(e) {
+document.getElementById('adminLoginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-    
-    const username = document.getElementById('adminUsername').value;
+
+    const username = document.getElementById('adminUsername').value.trim();
     const password = document.getElementById('adminPassword').value;
-    
-    // 验证管理员账号（从localStorage读取）
-    const adminConfig = JSON.parse(localStorage.getItem('adminConfig') || '{"account":"admin","password":"admin123"}');
-    
-    if (username === adminConfig.account && password === adminConfig.password) {
-        currentAdmin = adminConfig;
-        document.getElementById('adminName').innerHTML = `管理员：<span class="admin-name-display">${username}</span>`;
-        document.getElementById('loginSection').style.display = 'none';
-        document.getElementById('dashboardSection').style.display = 'block';
-        
-        loadSpecsForm();
-        loadJudgesTable();
-        loadWorksTable();
-        initAdminRealtime();  // 开启评分/作品实时推送 + 轮询兜底
-    } else {
-        alert('账号或密码错误！');
+    const submitBtn = this.querySelector('button[type="submit"]');
+
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '登录中...'; }
+
+    try {
+        // 先拉取云端配置，确保校验的是最新的管理员账号，而不是本机旧缓存
+        await storage.refreshCloudConfig();
+
+        const result = await storage.loginAdmin(username, password);
+
+        if (result) {
+            currentAdmin = result;
+            document.getElementById('adminName').innerHTML = `管理员：<span class="admin-name-display">${username}</span>`;
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('dashboardSection').style.display = 'block';
+
+            loadSpecsForm();
+            loadJudgesTable();
+            loadWorksTable();
+            initAdminRealtime();  // 开启评分/作品实时推送 + 轮询兜底
+        } else {
+            alert('账号或密码错误！');
+        }
+    } catch (error) {
+        console.error('❌ 管理员登录失败:', error);
+        alert('登录失败：' + error.message);
+    } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '登录'; }
     }
 });
 
@@ -55,6 +67,7 @@ function switchTab(tabName, event) {
         loadWorksTable();
     } else if (tabName === 'specs') {
         document.getElementById('specsTab').classList.add('active');
+        loadSpecsForm();  // 每次进入都用最新缓存（可能已被其他设备更新）重绘表单
     } else if (tabName === 'judges') {
         document.getElementById('judgesTab').classList.add('active');
     } else if (tabName === 'scores') {
@@ -123,8 +136,8 @@ function toggleCategory(category) {
     }
 }
 
-// 保存作品规格配置
-document.getElementById('specsForm').addEventListener('submit', function(e) {
+// 保存作品规格配置（写入云端 site_config，所有设备与选手端同步生效）
+document.getElementById('specsForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
     const specs = {
@@ -151,21 +164,39 @@ document.getElementById('specsForm').addEventListener('submit', function(e) {
         descriptionMinLength: parseInt(document.getElementById('descriptionMinLength').value)
     };
     
-    localStorage.setItem('submissionSpecs', JSON.stringify(specs));
-    
-    // 触发自定义事件通知其他页面
+    const submitBtn = this.querySelector('button[type="submit"]');
+    const originalLabel = submitBtn ? submitBtn.textContent : '';
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '保存中...'; }
+
+    let result;
+    try {
+        result = await storage.saveConfig('submissionSpecs', specs);
+    } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalLabel; }
+    }
+
+    // 触发自定义事件通知本页面其他模块
     window.dispatchEvent(new CustomEvent('specsUpdated'));
-    
-    alert('✅ 配置已保存！\n\n选手端将立即更新：\n• 作品分类显示\n• 上传规则提示\n• 文件校验标准\n\n请刷新选手端页面查看最新配置。');
+
+    if (result.syncedToCloud) {
+        alert('✅ 配置已保存到云端！\n\n所有设备的选手端刷新后即可看到最新要求：\n• 作品分类显示\n• 上传规则提示\n• 文件校验标准');
+    } else {
+        alert(`⚠️ 配置只保存在当前设备！\n\n原因：${result.cloudError || '云端写入失败'}\n\n其他设备与选手端不会看到本次修改，请先在 Supabase 执行 migration_cloud_accounts_and_config.sql，然后重新保存。`);
+    }
 });
 
 // 恢复默认配置
-function resetToDefaults() {
-    if (!confirm('确认恢复所有配置为默认值？')) return;
-    
-    localStorage.removeItem('submissionSpecs');
+async function resetToDefaults() {
+    if (!confirm('确认恢复所有配置为默认值？\n\n此操作会同时清除云端保存的配置，所有设备都会恢复默认。')) return;
+
+    const result = await storage.deleteConfig('submissionSpecs');
     loadSpecsForm();
-    alert('已恢复默认配置！');
+
+    if (result.syncedToCloud) {
+        alert('✅ 已恢复默认配置（云端 + 本机）！');
+    } else {
+        alert(`⚠️ 本机配置已清除，但云端清除失败：\n${result.cloudError || '未知原因'}`);
+    }
 }
 
 // 加载评委列表（云端优先 + 本机缓存兜底）
@@ -314,7 +345,7 @@ async function syncJudgesToCloud() {
         const result = await storage.syncLocalJudgesToCloud();
 
         if (!result.cloudAvailable) {
-            alert('❌ 无法连接云端评委表：\n' + (result.error || '请确认已执行 migration_fix_judges_policy.sql'));
+            alert('❌ 无法连接云端评委表：\n' + (result.error || '请确认已执行 migration_cloud_accounts_and_config.sql'));
             return;
         }
 
@@ -353,6 +384,7 @@ document.getElementById('addJudgeForm').addEventListener('submit', async functio
     e.preventDefault();
 
     const submitBtn = this.querySelector('button[type="submit"]');
+    const originalLabel = submitBtn ? submitBtn.textContent : '';
     const account = document.getElementById('judgeAccount').value.trim();
     const name = document.getElementById('judgeNameInput').value.trim();
     const password = document.getElementById('judgePasswordInput').value;
@@ -390,7 +422,7 @@ document.getElementById('addJudgeForm').addEventListener('submit', async functio
         console.error('❌ 创建评委失败:', error);
         alert('创建失败：' + error.message);
     } finally {
-        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '创建账号'; }
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalLabel; }
     }
 });
 
@@ -570,19 +602,22 @@ ${JSON.stringify(scores.slice(0, 3), null, 2)}${scores.length > 3 ? '\n... 还�
     alert('调试信息已输出到控制台\n按F12打开开发者工具查看Console标签');
 }
 
-// 管理员设置
-document.getElementById('adminSettingsForm').addEventListener('submit', function(e) {
+// 管理员设置（账号密码保存到云端 site_config）
+document.getElementById('adminSettingsForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
     const currentPassword = document.getElementById('currentAdminPassword').value;
-    const newUsername = document.getElementById('newAdminUsername').value;
+    const newUsername = document.getElementById('newAdminUsername').value.trim();
     const newPassword = document.getElementById('newAdminPassword').value;
     const confirmPassword = document.getElementById('confirmNewPassword').value;
     
-    const adminConfig = JSON.parse(localStorage.getItem('adminConfig') || '{"account":"admin","password":"admin123"}');
+    // 先同步云端配置，避免用本机旧密码校验
+    await storage.refreshCloudConfig();
+    const adminConfig = storage.getConfig('adminConfig') || { account: 'admin', password: 'admin123' };
     
-    // 验证当前密码
-    if (currentPassword !== adminConfig.password) {
+    // 验证当前密码（兼容明文与云端哈希两种存储形式）
+    const verified = await storage.loginAdmin(adminConfig.account, currentPassword);
+    if (!verified) {
         alert('当前密码错误！');
         return;
     }
@@ -596,12 +631,16 @@ document.getElementById('adminSettingsForm').addEventListener('submit', function
     // 更新配置
     const newConfig = {
         account: newUsername || adminConfig.account,
-        password: newPassword || adminConfig.password
+        password: newPassword || currentPassword
     };
     
-    localStorage.setItem('adminConfig', JSON.stringify(newConfig));
+    const result = await storage.saveConfig('adminConfig', newConfig);
     
-    alert('设置已更新！请使用新账号密码重新登录。');
+    if (result.syncedToCloud) {
+        alert('✅ 设置已更新并同步到云端！\n\n所有设备都需要使用新的账号密码登录管理后台。');
+    } else {
+        alert(`⚠️ 设置只保存在当前设备！\n\n原因：${result.cloudError || '云端写入失败'}\n\n其他设备仍需使用原来的账号密码。`);
+    }
     logout();
 });
 
@@ -994,7 +1033,13 @@ async function refreshScores() {
 
 // 初始化默认数据
 window.addEventListener('load', async () => {
-    // 初始化管理员配置
+    // 1) 先从云端拉取共享配置（投稿规格 / 管理员账号 / 评分项）刷新本机缓存
+    const cloudResult = await storage.refreshCloudConfig();
+    if (!cloudResult.ok) {
+        console.warn('⚠️ 云端配置不可用，本次使用本机配置：', cloudResult.reason);
+    }
+
+    // 2) 本机上不存在的配置写入默认值（仅本机缓存，随后再决定是否上传云端）
     if (!localStorage.getItem('adminConfig')) {
         localStorage.setItem('adminConfig', JSON.stringify({
             account: 'admin',
@@ -1002,7 +1047,6 @@ window.addEventListener('load', async () => {
         }));
     }
     
-    // 初始化作品规格
     if (!localStorage.getItem('submissionSpecs')) {
         localStorage.setItem('submissionSpecs', JSON.stringify({
             categories: ['视觉艺术', '文本创作', '音频生成', '视频制作'],
@@ -1023,6 +1067,8 @@ window.addEventListener('load', async () => {
             storedSpecs.image.minSize = 0.1;
             localStorage.setItem('submissionSpecs', JSON.stringify(storedSpecs));
             console.log('ℹ️ 已将图片最小文件大小配置从 1MB 迁移为 0.1MB');
+            // 纠正后的值需要覆盖云端，否则其他设备仍会读到 1MB
+            await storage.saveConfig('submissionSpecs', storedSpecs);
         }
     } catch (e) {
         console.warn('⚠️ 规格配置迁移失败:', e);
@@ -1037,6 +1083,18 @@ window.addEventListener('load', async () => {
             {name: '契合度', maxScore: 10}
         ]));
     }
+
+    // 3) 把本机已有、云端还缺失的配置补传到云端（首次启用云端配置时的历史迁移）
+    try {
+        const syncResult = await storage.syncLocalConfigToCloud();
+        if (syncResult.cloudAvailable && syncResult.synced > 0) {
+            console.log(`✅ 已将 ${syncResult.synced} 项本机配置上传到云端`);
+        } else if (!syncResult.cloudAvailable) {
+            console.warn('⚠️ 配置云端同步不可用：', syncResult.error);
+        }
+    } catch (e) {
+        console.warn('⚠️ 配置云端同步异常:', e);
+    }
     
     // 评委账号统一存储在云端 judges 表（跨设备共享），
     // 不再写入任何默认演示账号，避免各设备出现「仅本机」的幽灵账号。
@@ -1044,7 +1102,7 @@ window.addEventListener('load', async () => {
         const cloudJudges = await storage.listCloudJudges();
         const localJudges = JSON.parse(localStorage.getItem('judges') || '[]');
         if (cloudJudges.length === 0 && Array.isArray(localJudges) && localJudges.length > 0) {
-            console.log(`ℹ️ 检测到 ${localJudges.length} 个仅存在于本机的评委账号，可在「评委管理」中点击“同步到云端”`);
+            console.log(`ℹ️ 检测到 ${localJudges.length} 个仅存在于本机的评委账号，将在打开「评委账号管理」时自动同步到云端`);
         }
     } catch (e) {
         console.warn('⚠️ 评委账号云端检查失败:', e);
@@ -1512,6 +1570,51 @@ function scheduleLiveRefresh(reason) {
     }, 800);
 }
 
+// 云端配置变更：刷新本机缓存，并在不打断编辑的前提下更新界面
+let configRefreshTimer = null;
+
+async function handleCloudConfigChange(reason) {
+    clearTimeout(configRefreshTimer);
+    configRefreshTimer = setTimeout(async () => {
+        try {
+            console.log(`🔄 检测到云端配置变化(${reason})，重新拉取...`);
+            const result = await storage.refreshCloudConfig();
+            if (!result.ok) return;
+
+            const tab = currentActiveTab();
+            if (tab === 'specs') {
+                // 管理员可能正在编辑表单，不直接覆盖输入内容
+                showConfigUpdatedToast();
+            } else {
+                loadSpecsForm();
+            }
+            if (tab === 'judges') loadJudgesTable();
+        } catch (error) {
+            console.warn('⚠️ 处理云端配置变更失败:', error);
+        }
+    }, 600);
+}
+
+function showConfigUpdatedToast() {
+    const old = document.getElementById('configUpdatedToast');
+    if (old) old.remove();
+
+    const toast = document.createElement('div');
+    toast.id = 'configUpdatedToast';
+    toast.style.cssText = 'position:fixed;top:80px;right:20px;z-index:9999;background:#1f2937;color:#fff;'
+        + 'padding:1rem 1.25rem;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.35);font-size:0.9rem;max-width:320px;';
+    toast.innerHTML = '🔄 云端配置已被其他设备更新。'
+        + '<button id="configToastReload" class="btn-primary btn-sm" style="margin-top:0.6rem;display:block;">载入最新配置</button>';
+    document.body.appendChild(toast);
+
+    document.getElementById('configToastReload').addEventListener('click', () => {
+        loadSpecsForm();
+        toast.remove();
+    });
+
+    setTimeout(() => { if (toast.isConnected) toast.remove(); }, 15000);
+}
+
 // 初始化 Realtime 订阅 + 轮询兜底
 function initAdminRealtime() {
     // Realtime 推送（需 Supabase 开启 scores/works 表的 Realtime）
@@ -1523,6 +1626,8 @@ function initAdminRealtime() {
                     p => scheduleLiveRefresh('scores:' + p.eventType))
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'works' },
                     p => scheduleLiveRefresh('works:' + p.eventType))
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'site_config' },
+                    p => handleCloudConfigChange('site_config:' + p.eventType))
                 .subscribe(status => console.log('📡 Realtime 状态:', status));
         } catch (e) {
             console.warn('⚠️ Realtime 订阅失败，仅用轮询:', e);

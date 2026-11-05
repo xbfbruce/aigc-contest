@@ -802,7 +802,14 @@ document.addEventListener('keydown', function(e) {
 });
 
 // 初始化
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
+    // 先从云端拉取共享配置（评分项等）
+    try {
+        await storage.refreshCloudConfig();
+    } catch (e) {
+        console.warn('⚠️ 云端配置同步失败，使用本机缓存:', e);
+    }
+
     // 检查是否有配置评分项
     if (!localStorage.getItem('scoringItems')) {
         localStorage.setItem('scoringItems', JSON.stringify([

@@ -1,6 +1,21 @@
 // 当前登录的选手信息(使用var避免暂时性死区问题)
 var currentContestant = null;
 
+// 页面加载即从云端拉取最新配置（投稿规格等），
+// 之后所有同步读取 localStorage 的地方拿到的都是云端最新值
+const cloudConfigReady = (async () => {
+    try {
+        const result = await storage.refreshCloudConfig();
+        if (!result.ok) {
+            console.warn('⚠️ 云端配置暂不可用，使用本机缓存:', result.reason);
+        }
+        return result;
+    } catch (error) {
+        console.warn('⚠️ 云端配置同步异常，使用本机缓存:', error);
+        return { ok: false, reason: error.message };
+    }
+})();
+
 // 获取当前配置
 function getCurrentSpecs() {
     return JSON.parse(localStorage.getItem('submissionSpecs') || '{}');
@@ -580,7 +595,8 @@ function viewDetail(title) {
 }
 
 // 初始化
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
+    await cloudConfigReady;      // 等云端规格到位后再渲染，避免闪一下旧配置
     loadAndDisplaySpecs();  // 加载并显示规格
     updateUploadHint();
     loadSubmissions();
@@ -680,29 +696,70 @@ window.addEventListener('storage', (e) => {
         console.log('检测到配置更新，刷新显示...');
         loadAndDisplaySpecs();
         updateUploadHint();
-        // 显示提示
-        const notification = document.createElement('div');
-        notification.style.cssText = `
-            position: fixed;
-            top: 80px;
-            right: 20px;
-            background: var(--gradient-1);
-            color: white;
-            padding: 1rem 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
-            z-index: 9999;
-            animation: slideIn 0.3s ease;
-        `;
-        notification.innerHTML = '🔄 作品规范已更新，请刷新页面查看最新要求';
-        document.body.appendChild(notification);
-        
-        setTimeout(() => {
-            notification.style.animation = 'slideOut 0.3s ease';
-            setTimeout(() => notification.remove(), 300);
-        }, 3000);
+        notifySpecsUpdated();
     }
 });
+
+// 配置更新提示
+function notifySpecsUpdated() {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: var(--gradient-1);
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+        z-index: 9999;
+        animation: slideIn 0.3s ease;
+    `;
+    notification.innerHTML = '🔄 作品规范已更新，已自动载入最新要求';
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+    }, 4000);
+}
+
+// ============================================
+// 跨设备配置同步：管理端在任意设备修改规格后，
+// 已打开的选手端页面自动拉取最新配置
+// ============================================
+function initContestantConfigWatch() {
+    if (!(storage.useSupabase && storage.supabase)) return;
+
+    try {
+        storage.supabase
+            .channel('contestant-config-watch')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'site_config' }, async () => {
+                console.log('📡 云端配置变更，重新拉取...');
+                await storage.refreshCloudConfig();
+                loadAndDisplaySpecs();
+                updateUploadHint();
+                notifySpecsUpdated();
+            })
+            .subscribe(status => console.log('📡 选手端配置订阅状态:', status));
+    } catch (error) {
+        console.warn('⚠️ 云端配置订阅失败（将在页面重新可见时拉取）:', error);
+    }
+
+    // 兜底：平板/手机切回页面时拉一次最新配置
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState !== 'visible') return;
+        try {
+            await storage.refreshCloudConfig();
+            loadAndDisplaySpecs();
+            updateUploadHint();
+        } catch (error) {
+            console.warn('⚠️ 重新拉取配置失败:', error);
+        }
+    });
+}
+
+cloudConfigReady.then(initContestantConfigWatch);
 
 // 添加动画样式
 const style = document.createElement('style');
