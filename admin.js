@@ -168,99 +168,172 @@ function resetToDefaults() {
     alert('已恢复默认配置！');
 }
 
-// 加载评委列表
+// 加载评委列表（云端优先 + 本机缓存兜底）
 async function loadJudgesTable() {
-    const judgesData = localStorage.getItem('judges');
-    let judges = [];
-    
-    try {
-        judges = judgesData ? JSON.parse(judgesData) : [];
-        // 确保是数组
-        if (!Array.isArray(judges)) {
-            console.warn('judges不是数组，重置为空数组');
-            judges = [];
-            localStorage.setItem('judges', '[]');
-        }
-    } catch (e) {
-        console.error('解析judges失败:', e);
-        judges = [];
-        localStorage.setItem('judges', '[]');
-    }
-    
     const tbody = document.getElementById('judgesTable');
-    
     if (!tbody) {
         console.error('找不到judgesTable元素');
         return;
     }
-    
+
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">加载中...</td></tr>';
+
+    let judges = [];
+    let cloudError = null;
+    try {
+        judges = await storage.listJudges();
+        cloudError = judges.cloudError || null;
+    } catch (error) {
+        console.error('❌ 加载评委列表失败:', error);
+        judges = [];
+        cloudError = error.message;
+    }
+
+    if (cloudError) {
+        console.warn('⚠️ 云端评委读取异常:', cloudError);
+    }
+
+    // 过滤无效数据
+    judges = judges.filter(j => j && j.account && j.name);
+
+    // 只存在于本机的账号数量（用于提示同步）
+    let localOnly = judges.filter(j => j.source === 'local');
+
+    // 首次加载时，自动把历史遗留在本机的账号补传到云端（仅尝试一次）
+    if (!cloudError && localOnly.length > 0 && !window.__judgesAutoSyncTried) {
+        window.__judgesAutoSyncTried = true;
+        try {
+            const result = await storage.syncLocalJudgesToCloud();
+            if (result.synced > 0) {
+                console.log(`✅ 已自动将 ${result.synced} 个本机评委账号同步到云端`);
+                judges = await storage.listJudges();
+                cloudError = judges.cloudError || null;
+                judges = judges.filter(j => j && j.account && j.name);
+                localOnly = judges.filter(j => j.source === 'local');
+            } else if (result.failed > 0) {
+                console.warn('⚠️ 自动同步评委账号失败:', result.errors);
+            }
+        } catch (error) {
+            console.warn('⚠️ 自动同步评委账号异常:', error);
+        }
+    }
+
+    updateJudgesSyncBanner(localOnly.length, cloudError);
+
     if (judges.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无评委账号</td></tr>';
         return;
     }
-    
-    // 过滤掉无效数据
-    const validJudges = judges.filter(judge => {
-        if (!judge || !judge.account || !judge.name) {
-            console.warn('发现无效的评委数据:', judge);
-            return false;
-        }
-        return true;
-    });
-    
-    // 如果有无效数据，清理localStorage
-    if (validJudges.length !== judges.length) {
-        console.log(`清理无效数据：${judges.length - validJudges.length}条`);
-        localStorage.setItem('judges', JSON.stringify(validJudges));
-    }
-    
-    if (validJudges.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无评委账号</td></tr>';
-        return;
-    }
-    
+
     // 从 Supabase 获取每个评委的已评分作品数
+    let scoredCountMap = {};
     try {
-        const { data: allScores, error } = await storage.supabase
-            .from('scores')
-            .select('judge_account, work_id')
-            .eq('is_submitted', true);
-        
-        if (error) throw error;
-        
-        // 统计每个评委的已评分作品数
-        const scoredCountMap = {};
-        if (allScores) {
-            allScores.forEach(score => {
+        if (storage.useSupabase && storage.supabase) {
+            const { data: allScores, error } = await storage.supabase
+                .from('scores')
+                .select('judge_account, work_id')
+                .eq('is_submitted', true);
+
+            if (error) throw error;
+
+            (allScores || []).forEach(score => {
                 if (!scoredCountMap[score.judge_account]) {
                     scoredCountMap[score.judge_account] = new Set();
                 }
                 scoredCountMap[score.judge_account].add(score.work_id);
             });
         }
-        
-        tbody.innerHTML = validJudges.map(judge => {
-            const scoredCount = scoredCountMap[judge.account]?.size || 0;
-            
-            return `
-                <tr>
-                    <td>${judge.account}</td>
-                    <td>${judge.name}</td>
-                    <td>-</td>
-                    <td>${scoredCount}</td>
-                    <td><span class="work-status status-scored">正常</span></td>
-                    <td>
-                        <button class="btn-secondary btn-sm" onclick="resetJudgePassword('${judge.account}')">重置密码</button>
-                        <button class="btn-secondary btn-sm" onclick="deleteJudge('${judge.account}')" style="margin-left: 0.5rem;">删除</button>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-        
-        console.log(`加载评委列表：共${validJudges.length}个评委`);
     } catch (error) {
-        console.error('❌ 加载评委列表失败:', error);
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">加载失败: ' + error.message + '</td></tr>';
+        console.warn('⚠️ 读取评分统计失败:', error);
+    }
+
+    tbody.innerHTML = judges.map(judge => {
+        const scoredCount = scoredCountMap[judge.account]?.size || 0;
+        const sourceTag = judge.source === 'local'
+            ? '<span class="work-status status-pending" title="该账号只保存在当前设备，其他设备无法登录，请点击上方“同步到云端”">仅本机</span>'
+            : '<span class="work-status status-scored">云端</span>';
+
+        return `
+            <tr>
+                <td>${escapeHtml(judge.account)}</td>
+                <td>${escapeHtml(judge.name)}</td>
+                <td>${sourceTag}</td>
+                <td>${scoredCount}</td>
+                <td><span class="work-status status-scored">正常</span></td>
+                <td>
+                    <button class="btn-warning btn-sm" onclick="resetJudgePassword('${escapeAttr(judge.account)}')">重置密码</button>
+                    <button class="btn-danger btn-sm" onclick="deleteJudge('${escapeAttr(judge.account)}')" style="margin-left: 0.5rem;">删除</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    console.log(`加载评委列表：共${judges.length}个评委（云端 ${judges.length - localOnly.length} / 仅本机 ${localOnly.length}）`);
+}
+
+// HTML 转义，避免账号或姓名中的特殊字符破坏表格
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function escapeAttr(value) {
+    return escapeHtml(value).replace(/'/g, '&#39;');
+}
+
+// 顶部同步提示条
+function updateJudgesSyncBanner(localOnlyCount, cloudError) {
+    const banner = document.getElementById('judgesSyncBanner');
+    if (!banner) return;
+
+    if (cloudError) {
+        banner.style.display = 'block';
+        banner.className = 'sync-banner sync-banner-error';
+        banner.innerHTML = `⚠️ 云端评委表不可用：${escapeHtml(cloudError)}<br>
+            目前新增的账号只会保存在当前设备，其他设备无法登录。`;
+        return;
+    }
+
+    if (localOnlyCount > 0) {
+        banner.style.display = 'block';
+        banner.className = 'sync-banner sync-banner-warn';
+        banner.innerHTML = `有 <b>${localOnlyCount}</b> 个账号只保存在当前设备（其他设备无法登录）。
+            <button class="btn-primary btn-sm" style="margin-left:0.75rem;" onclick="syncJudgesToCloud()">同步到云端</button>`;
+        return;
+    }
+
+    banner.style.display = 'none';
+}
+
+// 把仅本机的账号同步到云端
+async function syncJudgesToCloud() {
+    try {
+        const result = await storage.syncLocalJudgesToCloud();
+
+        if (!result.cloudAvailable) {
+            alert('❌ 无法连接云端评委表：\n' + (result.error || '请确认已执行 migration_fix_judges_policy.sql'));
+            return;
+        }
+
+        let msg = `✅ 同步完成：成功上传 ${result.synced} 个账号`;
+        if (result.failed > 0) {
+            msg += `，失败 ${result.failed} 个`;
+            if (result.errors && result.errors.length) {
+                msg += '\n\n失败详情：\n' + result.errors.join('\n');
+            }
+        }
+        if (result.synced === 0 && result.failed === 0) {
+            msg = '云端已是最新，没有需要同步的账号。';
+        }
+        alert(msg);
+    } catch (error) {
+        console.error('❌ 同步评委失败:', error);
+        alert('同步失败：' + error.message);
+    } finally {
+        loadJudgesTable();
     }
 }
 
@@ -275,151 +348,180 @@ function closeAddJudgeModal() {
     document.getElementById('addJudgeForm').reset();
 }
 
-// 添加评委
-document.getElementById('addJudgeForm').addEventListener('submit', function(e) {
+// 添加评委（写入云端，所有设备均可登录）
+document.getElementById('addJudgeForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-    
-    const account = document.getElementById('judgeAccount').value;
-    const name = document.getElementById('judgeNameInput').value;
+
+    const submitBtn = this.querySelector('button[type="submit"]');
+    const account = document.getElementById('judgeAccount').value.trim();
+    const name = document.getElementById('judgeNameInput').value.trim();
     const password = document.getElementById('judgePasswordInput').value;
-    
-    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
-    
-    // 检查账号是否已存在
-    if (judges.find(j => j.account === account)) {
-        alert('该账号已存在！');
+
+    if (!account || !name || !password) {
+        alert('请填写完整的账号、姓名和密码');
         return;
     }
-    
-    judges.push({ account, name, password });
-    localStorage.setItem('judges', JSON.stringify(judges));
-    
-    alert('评委账号创建成功！');
-    closeAddJudgeModal();
-    loadJudgesTable();
+
+    // 先用当前已知列表做一次重复校验（云端 + 本机）
+    try {
+        const existing = await storage.listJudges();
+        if (existing.some(j => j.account === account)) {
+            alert('该账号已存在！');
+            return;
+        }
+    } catch (err) {
+        console.warn('⚠️ 重复校验失败，继续创建:', err);
+    }
+
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '创建中...'; }
+
+    try {
+        const result = await storage.createJudge(account, password, name);
+
+        if (result.syncedToCloud) {
+            alert(`✅ 评委账号「${name}（${account}）」创建成功！\n\n已保存到云端，评委可在任意设备登录。`);
+        } else {
+            alert(`⚠️ 评委账号「${name}（${account}）」已创建，但目前只保存在当前设备！\n\n原因：${result.cloudError || '云端写入失败'}\n\n该账号在其他设备上无法登录，请先解决云端问题，再点击列表上方的“同步到云端”。`);
+        }
+
+        closeAddJudgeModal();
+        await loadJudgesTable();
+    } catch (error) {
+        console.error('❌ 创建评委失败:', error);
+        alert('创建失败：' + error.message);
+    } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '创建账号'; }
+    }
 });
 
-// 重置评委密码
-function resetJudgePassword(account) {
-    const newPassword = prompt('请输入新密码：');
+// 重置评委密码（同步到云端）
+async function resetJudgePassword(account) {
+    const newPassword = prompt(`请输入评委 ${account} 的新密码：`);
     if (!newPassword) return;
-    
-    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
-    const judge = judges.find(j => j.account === account);
-    
-    if (judge) {
-        judge.password = newPassword;
-        localStorage.setItem('judges', JSON.stringify(judges));
-        alert('密码已重置！');
+
+    try {
+        const result = await storage.updateJudge(account, { password: newPassword });
+
+        if (result.syncedToCloud) {
+            alert('✅ 密码已重置（已同步到云端，评委可在任意设备用新密码登录）');
+        } else {
+            alert(`⚠️ 密码已在当前设备重置，但云端同步失败：\n${result.cloudError || '未知原因'}\n\n其他设备仍需使用旧密码。`);
+        }
+    } catch (error) {
+        console.error('❌ 重置密码失败:', error);
+        alert('重置失败：' + error.message);
     }
+
+    loadJudgesTable();
 }
 
-// 删除评委
-function deleteJudge(account) {
+// 删除评委（云端 + 本机一并删除）
+async function deleteJudge(account) {
     console.log('开始删除评委:', account);
-    
-    const judgesData = localStorage.getItem('judges');
+
     let judges = [];
-    
     try {
-        judges = judgesData ? JSON.parse(judgesData) : [];
-        if (!Array.isArray(judges)) {
-            console.error('judges数据格式错误');
-            judges = [];
-        }
+        judges = (await storage.listJudges()).filter(j => j && j.account && j.name);
     } catch (e) {
-        console.error('解析judges失败:', e);
-        alert('数据错误，请刷新页面后重试');
+        console.error('读取评委列表失败:', e);
+        alert('数据读取失败，请刷新页面后重试');
         return;
     }
-    
+
     // 检查是否只剩最后一个评委
     if (judges.length <= 1) {
         alert('⚠️ 至少需要保留一个评委账号！\n\n如需删除所有评委，请先添加新评委后再操作。');
         return;
     }
-    
-    // 查找要删除的评委
+
     const judgeToDelete = judges.find(j => j.account === account);
     if (!judgeToDelete) {
         alert('找不到该评委账号，可能已被删除');
-        loadJudgesTable(); // 刷新列表
+        loadJudgesTable();
         return;
     }
-    
-    if (!confirm(`确认删除评委 ${account}（${judgeToDelete.name}）？\n\n此操作将：\n• 删除评委登录账号\n• 清除该评委的所有评分记录\n• 清除相关的作品分配\n\n此操作不可恢复！`)) {
+
+    if (!confirm(`确认删除评委 ${account}（${judgeToDelete.name}）？\n\n此操作将：\n• 删除评委登录账号（所有设备）\n• 清除该评委的所有评分记录\n\n此操作不可恢复！`)) {
         return;
     }
-    
-    // 删除评委账号
-    const updatedJudges = judges.filter(j => j.account !== account);
-    console.log('删除后剩余评委数:', updatedJudges.length);
-    
-    try {
-        localStorage.setItem('judges', JSON.stringify(updatedJudges));
-        
-        // 验证是否保存成功
-        const savedData = localStorage.getItem('judges');
-        const parsed = JSON.parse(savedData);
-        console.log('保存后的数据:', parsed);
-        
-        if (parsed.length !== updatedJudges.length) {
-            throw new Error('保存的数据与预期不符');
-        }
-    } catch (e) {
-        console.error('保存judges失败:', e);
-        alert('保存失败，请重试');
+
+    const result = await storage.deleteJudgeByAccount(account);
+
+    if (!result.syncedToCloud && judgeToDelete.source === 'cloud') {
+        alert(`❌ 云端删除失败：${result.cloudError || '未知原因'}\n\n账号未被删除。`);
+        loadJudgesTable();
         return;
     }
-    
-    // 清除该评委的评分记录
+
+    // 清除该评委的本机评分缓存
     let judgeScores = JSON.parse(localStorage.getItem('judgeScores') || '[]');
     const beforeScores = judgeScores.length;
     judgeScores = judgeScores.filter(s => s.judgeAccount !== account);
     localStorage.setItem('judgeScores', JSON.stringify(judgeScores));
-    console.log(`清除评分记录: ${beforeScores} -> ${judgeScores.length}`);
-    
-    // 清除相关的作品分配
+
+    // 清除云端评分记录
+    let cloudScoresRemoved = 0;
+    try {
+        if (storage.useSupabase && storage.supabase) {
+            const { data: removed, error } = await storage.supabase
+                .from('scores')
+                .delete()
+                .eq('judge_account', account)
+                .select('id');
+            if (error) throw error;
+            cloudScoresRemoved = (removed || []).length;
+        }
+    } catch (error) {
+        console.warn('⚠️ 清除云端评分记录失败:', error);
+    }
+
+    // 清除历史遗留的本机分配记录
     let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
-    const beforeAssignments = assignments.length;
     assignments = assignments.filter(a => a.judgeAccount !== account);
     localStorage.setItem('assignments', JSON.stringify(assignments));
-    console.log(`清除分配记录: ${beforeAssignments} -> ${assignments.length}`);
-    
-    alert(`✅ 评委 ${account}（${judgeToDelete.name}）已删除！\n\n同时已清理：\n• ${beforeScores - judgeScores.length} 条评分记录\n• ${beforeAssignments - assignments.length} 条分配记录`);
-    
-    // 强制刷新列表
+
+    alert(`✅ 评委 ${account}（${judgeToDelete.name}）已删除！\n\n同时已清理评分记录：云端 ${cloudScoresRemoved} 条 / 本机 ${beforeScores - judgeScores.length} 条`);
+
     setTimeout(() => {
         loadJudgesTable();
+        if (typeof scheduleLiveRefresh === 'function') scheduleLiveRefresh('judge-deleted');
     }, 100);
 }
 
-// 清空所有评委
-function clearAllJudges() {
-    const judges = JSON.parse(localStorage.getItem('judges') || '[]');
-    
+// 清空所有评委（云端 + 本机）
+async function clearAllJudges() {
+    let judges = [];
+    try {
+        judges = (await storage.listJudges()).filter(j => j && j.account && j.name);
+    } catch (e) {
+        judges = [];
+    }
+
     if (judges.length === 0) {
         alert('当前没有评委账号');
         return;
     }
-    
-    if (!confirm(`⚠️ 警告：即将清空所有评委账号（共${judges.length}个）！\n\n此操作将：\n• 删除所有评委登录账号\n• 清除所有评分记录\n• 清除所有作品分配关系\n\n此操作不可恢复！确认继续吗？`)) {
+
+    if (!confirm(`⚠️ 警告：即将清空所有评委账号（共${judges.length}个，含云端）！\n\n此操作将：\n• 删除所有评委登录账号\n• 清除所有评分记录\n\n此操作不可恢复！确认继续吗？`)) {
         return;
     }
-    
-    // 二次确认
+
     const confirmText = prompt(`请输入 "DELETE" 确认清空所有评委：`);
     if (confirmText !== 'DELETE') {
         alert('已取消操作');
         return;
     }
-    
-    // 清空所有评委数据
-    localStorage.setItem('judges', '[]');
+
+    const result = await storage.clearAllJudges();
     localStorage.setItem('judgeScores', '[]');
     localStorage.setItem('assignments', '[]');
-    
-    alert('✅ 已清空所有评委及相关数据！\n\n您可以重新添加评委账号。');
+
+    if (!result.syncedToCloud) {
+        alert(`⚠️ 本机评委已清空，但云端清空失败：\n${result.cloudError || '未知原因'}`);
+    } else {
+        alert('✅ 已清空所有评委及相关数据（云端 + 本机）！\n\n您可以重新添加评委账号。');
+    }
+
     loadJudgesTable();
 }
 
@@ -891,7 +993,7 @@ async function refreshScores() {
 
 
 // 初始化默认数据
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
     // 初始化管理员配置
     if (!localStorage.getItem('adminConfig')) {
         localStorage.setItem('adminConfig', JSON.stringify({
@@ -936,13 +1038,16 @@ window.addEventListener('load', () => {
         ]));
     }
     
-    // 初始化评委数据（仅在完全没有数据时）
-    const existingJudges = localStorage.getItem('judges');
-    if (!existingJudges) {
-        localStorage.setItem('judges', JSON.stringify([
-            { account: 'judge1', name: '张评委', password: 'judge123' },
-            { account: 'judge2', name: '李评委', password: 'judge123' }
-        ]));
+    // 评委账号统一存储在云端 judges 表（跨设备共享），
+    // 不再写入任何默认演示账号，避免各设备出现「仅本机」的幽灵账号。
+    try {
+        const cloudJudges = await storage.listCloudJudges();
+        const localJudges = JSON.parse(localStorage.getItem('judges') || '[]');
+        if (cloudJudges.length === 0 && Array.isArray(localJudges) && localJudges.length > 0) {
+            console.log(`ℹ️ 检测到 ${localJudges.length} 个仅存在于本机的评委账号，可在「评委管理」中点击“同步到云端”`);
+        }
+    } catch (e) {
+        console.warn('⚠️ 评委账号云端检查失败:', e);
     }
 });
 

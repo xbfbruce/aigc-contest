@@ -14,38 +14,19 @@ document.getElementById('judgeLoginForm').addEventListener('submit', async funct
     const password = document.getElementById('judgePassword').value;
     
     try {
-        // 尝试从Supabase验证评委账号
-        let judge = null;
-        
-        if (storage.useSupabase && storage.supabase) {
-            // 从Supabase查询
-            const { data, error } = await storage.supabase
-                .from('judges')
-                .select('*')
-                .eq('account', username)
-                .single();
-            
-            if (!error && data) {
-                // 简单密码验证（生产环境应使用bcrypt）
-                const passwordHash = await storage.hashPassword(password);
-                if (data.password_hash === passwordHash) {
-                    judge = { account: data.account, name: data.name, password: password };
-                }
-            }
-        }
-        
-        // Fallback到localStorage
-        if (!judge) {
-            const judges = JSON.parse(localStorage.getItem('judges') || '[]');
-            judge = judges.find(j => j.account === username && j.password === password);
-        }
-        
+        // 统一走 storage.loginJudge：云端 judges 表优先，本机缓存兜底
+        const judge = await storage.loginJudge(username.trim(), password);
+
         if (judge) {
             currentJudge = judge;
             document.getElementById('judgeName').innerHTML = `评委：<span class="judge-name-display">${judge.name}</span>`;
             document.getElementById('loginSection').style.display = 'none';
             document.getElementById('workbenchSection').style.display = 'block';
-            
+
+            if (judge.source === 'local') {
+                console.warn('⚠️ 当前使用的是本机缓存账号，未与云端同步，其他设备无法登录');
+            }
+
             loadWorks();
             updateProgress();
         } else {

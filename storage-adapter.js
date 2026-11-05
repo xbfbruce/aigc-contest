@@ -351,89 +351,347 @@ class StorageAdapter {
     // Judges 操作
     // ============================================
 
-    async createJudge(account, password, name) {
-        if (this.useSupabase && this.supabase) {
-            // 简单hash密码（生产环境应使用bcrypt）
-            const passwordHash = await this.hashPassword(password);
-            
-            const { data, error } = await this.supabase
-                .from('judges')
-                .insert([{ account, password_hash: passwordHash, name }])
-                .select()
-                .single();
-            
-            if (error) throw error;
-            return data;
-        } else {
-            let judges = JSON.parse(localStorage.getItem('judges') || '[]');
-            const judge = {
-                id: crypto.randomUUID(),
-                account,
-                password, // 不安全，仅用于demo
-                name,
-                created_at: new Date().toISOString()
-            };
-            judges.push(judge);
-            localStorage.setItem('judges', JSON.stringify(judges));
-            return judge;
+    // ---- 评委账号本地缓存工具 ----
+    // 说明：localStorage 只作为「离线/云端不可用」时的兜底缓存，
+    //       真正的账号数据以 Supabase judges 表为准（跨设备共享）。
+
+    _getLocalJudges() {
+        try {
+            const list = JSON.parse(localStorage.getItem('judges') || '[]');
+            return Array.isArray(list) ? list.filter(j => j && j.account) : [];
+        } catch (e) {
+            console.error('解析本地评委缓存失败:', e);
+            return [];
         }
     }
 
-    async listJudges() {
-        if (this.useSupabase && this.supabase) {
-            const { data, error } = await this.supabase
-                .from('judges')
-                .select('*')
-                .order('created_at', { ascending: false });
-            
-            if (error) throw error;
-            return data || [];
-        } else {
-            return JSON.parse(localStorage.getItem('judges') || '[]');
+    _saveLocalJudges(list) {
+        try {
+            localStorage.setItem('judges', JSON.stringify(list));
+        } catch (e) {
+            console.warn('写入本地评委缓存失败:', e);
         }
+    }
+
+    _cacheJudgeToLocal(judge) {
+        const list = this._getLocalJudges();
+        const idx = list.findIndex(j => j.account === judge.account);
+        const entry = {
+            account: judge.account,
+            name: judge.name,
+            password: judge.password || (idx >= 0 ? list[idx].password : '')
+        };
+        if (idx >= 0) list[idx] = { ...list[idx], ...entry };
+        else list.push(entry);
+        this._saveLocalJudges(list);
+    }
+
+    _removeJudgeFromLocal(account) {
+        this._saveLocalJudges(this._getLocalJudges().filter(j => j.account !== account));
+    }
+
+    /**
+     * 创建评委账号（写入云端，并缓存到本机）
+     * @returns {Promise<{account,name,id?,syncedToCloud:boolean,cloudError?:string}>}
+     */
+    async createJudge(account, password, name) {
+        account = String(account || '').trim();
+        name = String(name || '').trim();
+        if (!account || !password) throw new Error('账号和密码不能为空');
+
+        const result = { account, name, syncedToCloud: false };
+
+        if (this.useSupabase && this.supabase) {
+            try {
+                const passwordHash = await this.hashPassword(password);
+                const { data, error } = await this.supabase
+                    .from('judges')
+                    .insert([{ account, password_hash: passwordHash, name }])
+                    .select()
+                    .single();
+
+                if (error) throw error;
+                result.id = data.id;
+                result.syncedToCloud = true;
+            } catch (error) {
+                // 账号重复 → 明确报错，不做本地兜底
+                if (error.code === '23505' || /duplicate key|unique/i.test(error.message || '')) {
+                    throw new Error('该账号已存在');
+                }
+                console.error('❌ 云端创建评委失败:', error);
+                result.cloudError = this._friendlyCloudError(error);
+            }
+        }
+
+        // 无论云端是否成功，都写入本机缓存，保证当前设备可继续使用
+        this._cacheJudgeToLocal({ account, name, password });
+        return result;
+    }
+
+    /**
+     * 更新评委信息（目前用于重置密码 / 改名）
+     */
+    async updateJudge(account, fields = {}) {
+        const result = { account, syncedToCloud: false };
+
+        if (this.useSupabase && this.supabase) {
+            const payload = {};
+            if (fields.name) payload.name = fields.name;
+            if (fields.password) payload.password_hash = await this.hashPassword(fields.password);
+
+            if (Object.keys(payload).length > 0) {
+                try {
+                    const { error } = await this.supabase
+                        .from('judges')
+                        .update(payload)
+                        .eq('account', account);
+                    if (error) throw error;
+                    result.syncedToCloud = true;
+                } catch (error) {
+                    console.error('❌ 云端更新评委失败:', error);
+                    result.cloudError = this._friendlyCloudError(error);
+                }
+            } else {
+                result.syncedToCloud = true; // 无需更新云端
+            }
+        }
+
+        // 同步本机缓存
+        const list = this._getLocalJudges();
+        const target = list.find(j => j.account === account);
+        if (target) {
+            if (fields.name) target.name = fields.name;
+            if (fields.password) target.password = fields.password;
+            this._saveLocalJudges(list);
+        } else if (fields.name || fields.password) {
+            this._cacheJudgeToLocal({ account, name: fields.name || account, password: fields.password });
+        }
+
+        return result;
+    }
+
+    /**
+     * 云端评委列表（原始数据，含 password_hash）
+     */
+    async listCloudJudges() {
+        if (!(this.useSupabase && this.supabase)) return [];
+        const { data, error } = await this.supabase
+            .from('judges')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        return data || [];
+    }
+
+    /**
+     * 评委列表：云端 + 本机缓存合并（按 account 去重）
+     * 每项带 source: 'cloud' | 'local'，便于管理端提示「仅本机」
+     */
+    async listJudges() {
+        let cloud = [];
+        let cloudError = null;
+        try {
+            cloud = await this.listCloudJudges();
+        } catch (error) {
+            cloudError = this._friendlyCloudError(error);
+            console.warn('⚠️ 读取云端评委失败，回退到本机缓存:', error);
+        }
+
+        const merged = new Map();
+        cloud.forEach(j => {
+            if (!j || !j.account) return;
+            merged.set(j.account, {
+                id: j.id,
+                account: j.account,
+                name: j.name,
+                created_at: j.created_at,
+                source: 'cloud'
+            });
+        });
+
+        this._getLocalJudges().forEach(j => {
+            if (merged.has(j.account)) {
+                // 云端已有，本机缓存仅补充明文密码（用于本地兜底登录）
+                merged.get(j.account).password = j.password;
+                return;
+            }
+            merged.set(j.account, {
+                id: j.id,
+                account: j.account,
+                name: j.name,
+                password: j.password,
+                created_at: j.created_at,
+                source: 'local'
+            });
+        });
+
+        const list = [...merged.values()];
+        list.cloudError = cloudError;
+        return list;
+    }
+
+    /**
+     * 把本机缓存中「云端没有」的评委账号补传到云端
+     * 用于修复历史上只存在于某台设备的账号
+     */
+    async syncLocalJudgesToCloud() {
+        if (!(this.useSupabase && this.supabase)) {
+            return { synced: 0, failed: 0, skipped: 0, cloudAvailable: false };
+        }
+
+        let cloud = [];
+        try {
+            cloud = await this.listCloudJudges();
+        } catch (error) {
+            return { synced: 0, failed: 0, skipped: 0, cloudAvailable: false, error: this._friendlyCloudError(error) };
+        }
+
+        const cloudAccounts = new Set(cloud.map(j => j.account));
+        const locals = this._getLocalJudges().filter(j => !cloudAccounts.has(j.account));
+
+        let synced = 0, failed = 0;
+        const errors = [];
+        for (const j of locals) {
+            if (!j.password) { failed++; errors.push(`${j.account}：本机未保存密码，无法上传`); continue; }
+            try {
+                const passwordHash = await this.hashPassword(j.password);
+                const { error } = await this.supabase
+                    .from('judges')
+                    .insert([{ account: j.account, password_hash: passwordHash, name: j.name || j.account }]);
+                if (error) throw error;
+                synced++;
+            } catch (error) {
+                failed++;
+                errors.push(`${j.account}：${error.message || error}`);
+            }
+        }
+
+        return { synced, failed, skipped: locals.length - synced - failed, cloudAvailable: true, errors };
     }
 
     async deleteJudge(id) {
         if (this.useSupabase && this.supabase) {
-            const { error } = await this.supabase
-                .from('judges')
-                .delete()
-                .eq('id', id);
-            
-            if (error) throw error;
-        } else {
-            let judges = JSON.parse(localStorage.getItem('judges') || '[]');
-            judges = judges.filter(j => j.id !== id);
-            localStorage.setItem('judges', JSON.stringify(judges));
+            try {
+                const { error } = await this.supabase
+                    .from('judges')
+                    .delete()
+                    .eq('id', id);
+                if (error) throw error;
+            } catch (error) {
+                console.warn('⚠️ 云端删除评委(id)失败:', error);
+            }
         }
+        const list = this._getLocalJudges();
+        this._saveLocalJudges(list.filter(j => j.id !== id));
     }
 
-    async loginJudge(account, password) {
+    /**
+     * 按账号删除评委（管理端使用）
+     */
+    async deleteJudgeByAccount(account) {
+        let syncedToCloud = false;
         if (this.useSupabase && this.supabase) {
-            const passwordHash = await this.hashPassword(password);
-            
-            const { data, error } = await this.supabase
-                .from('judges')
-                .select('*')
-                .eq('account', account)
-                .eq('password_hash', passwordHash)
-                .single();
-            
-            if (error || !data) {
-                throw new Error('账号或密码错误');
+            try {
+                const { error } = await this.supabase
+                    .from('judges')
+                    .delete()
+                    .eq('account', account);
+                if (error) throw error;
+                syncedToCloud = true;
+            } catch (error) {
+                console.error('❌ 云端删除评委失败:', error);
+                return { syncedToCloud: false, cloudError: this._friendlyCloudError(error) };
             }
-            
-            return data;
-        } else {
-            const judges = JSON.parse(localStorage.getItem('judges') || '[]');
-            const judge = judges.find(j => j.account === account && j.password === password);
-            
-            if (!judge) {
-                throw new Error('账号或密码错误');
-            }
-            
-            return judge;
         }
+        this._removeJudgeFromLocal(account);
+        return { syncedToCloud };
+    }
+
+    /**
+     * 清空云端 + 本机所有评委账号
+     */
+    async clearAllJudges() {
+        let syncedToCloud = false;
+        if (this.useSupabase && this.supabase) {
+            try {
+                const { error } = await this.supabase
+                    .from('judges')
+                    .delete()
+                    .not('account', 'is', null);
+                if (error) throw error;
+                syncedToCloud = true;
+            } catch (error) {
+                console.error('❌ 云端清空评委失败:', error);
+                return { syncedToCloud: false, cloudError: this._friendlyCloudError(error) };
+            }
+        }
+        this._saveLocalJudges([]);
+        return { syncedToCloud };
+    }
+
+    /**
+     * 评委登录：云端优先，本机缓存兜底
+     */
+    async loginJudge(account, password) {
+        const localList = this._getLocalJudges();
+
+        if (this.useSupabase && this.supabase) {
+            let cloudReachable = false;
+            let cloudTotal = 0;
+            try {
+                const passwordHash = await this.hashPassword(password);
+                const { data, error } = await this.supabase
+                    .from('judges')
+                    .select('*')
+                    .eq('account', account)
+                    .eq('password_hash', passwordHash)
+                    .maybeSingle();
+
+                if (error) throw error;
+                cloudReachable = true;
+
+                if (data) {
+                    // 登录成功，顺便刷新本机缓存
+                    this._cacheJudgeToLocal({ account: data.account, name: data.name, password });
+                    return { account: data.account, name: data.name, password, id: data.id, source: 'cloud' };
+                }
+
+                const { count, error: countError } = await this.supabase
+                    .from('judges')
+                    .select('*', { count: 'exact', head: true });
+                cloudTotal = countError ? -1 : (count || 0);
+            } catch (error) {
+                console.warn('⚠️ 云端评委校验不可用，尝试本机缓存:', error);
+            }
+
+            // 云端可达但账号不存在：
+            //   • 云端已有评委数据 → 说明账号确实不存在/密码错误，不允许本地兜底
+            //   • 云端一条都没有（例如策略未开通）→ 允许用本机缓存登录，避免完全无法使用
+            if (cloudReachable && cloudTotal > 0) {
+                throw new Error('账号或密码错误');
+            }
+        }
+
+        const judge = localList.find(j => j.account === account && j.password === password);
+        if (!judge) {
+            throw new Error('账号或密码错误');
+        }
+        return { ...judge, source: 'local' };
+    }
+
+    /**
+     * 把 Supabase 错误翻译成用户能看懂的中文提示
+     */
+    _friendlyCloudError(error) {
+        if (!error) return '未知错误';
+        const msg = error.message || String(error);
+        if (error.code === '42501' || /row-level security/i.test(msg)) {
+            return '云端权限未开通：请在 Supabase SQL Editor 执行 migration_fix_judges_policy.sql';
+        }
+        if (/Failed to fetch|Load failed|NetworkError|timeout/i.test(msg)) {
+            return '网络异常，无法连接云端';
+        }
+        return msg;
     }
 
     // ============================================
