@@ -16,9 +16,19 @@ const cloudConfigReady = (async () => {
     }
 })();
 
-// 获取当前配置
+// 获取当前配置（云端刷新后的本机缓存）
 function getCurrentSpecs() {
-    return JSON.parse(localStorage.getItem('submissionSpecs') || '{}');
+    if (typeof storage !== 'undefined' && typeof storage.getCachedConfig === 'function') {
+        const cached = storage.getCachedConfig('submissionSpecs');
+        if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) {
+            return cached;
+        }
+    }
+    try {
+        return JSON.parse(localStorage.getItem('submissionSpecs') || '{}');
+    } catch (e) {
+        return {};
+    }
 }
 
 // 动态加载并显示规格
@@ -734,7 +744,7 @@ function initContestantConfigWatch() {
     try {
         storage.supabase
             .channel('contestant-config-watch')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'site_config' }, async () => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'configs' }, async () => {
                 console.log('📡 云端配置变更，重新拉取...');
                 await storage.refreshCloudConfig();
                 loadAndDisplaySpecs();

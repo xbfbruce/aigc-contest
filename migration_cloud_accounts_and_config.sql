@@ -15,7 +15,7 @@
 --
 --   【二】投稿规格 / 管理员账号 / 评分项 也是每台设备各存一份
 --         这些数据原本只写在 localStorage，设备 1 改的配置设备 2 看不到。
---         新建 site_config 表统一存放，前端读写云端、本机仅作缓存。
+--         configs 表已存在且 anon 可读，只需放开写权限，前端改为读写云端、本机仅作缓存。
 -- ============================================
 
 
@@ -61,55 +61,59 @@ TO anon, authenticated
 USING (true);
 
 -- ============================================
--- 【二】site_config 表：站点级共享配置
+-- 【二】configs 表：站点级共享配置（表已存在，只需放开写权限）
 -- ============================================
--- key 取值：
---   submissionSpecs  投稿规格（视频/图片要求、截止时间、描述字数等）
---   adminConfig      管理员账号（云端只存 passwordHash，不存明文密码）
---   scoringItems     评分项配置
+-- 现状：configs 表已存在，anon 可以读取，但写入策略只给了 authenticated，
+--       所以管理端修改的投稿规格只能写进本机 localStorage，其他设备看不到。
+--
+-- 前端使用的 key：
+--   submission_specs  投稿规格（视频/图片要求、截止时间、描述字数等）
+--   admin_config      管理员账号（云端只存 passwordHash，不存明文密码）
+--   scoring_items     评分项配置
+--   contest_info      赛事信息（历史数据，前端不会改动）
+--
+-- 注意：表里已有的 submission_specs 是 2026-10-20 写入的初始化种子数据
+--       （字段结构与现在不同，例如 image.minSizeMB=5），前端会自动识别并忽略它，
+--       绝不会用它覆盖你当前正在使用的配置。
+--       执行完本脚本后，在管理端「作品规格配置」页点一次“保存配置”，
+--       即可把当前配置设为全站标准。
 -- ============================================
 
-CREATE TABLE IF NOT EXISTS site_config (
+CREATE TABLE IF NOT EXISTS configs (
     key TEXT PRIMARY KEY,
     value JSONB NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE site_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE configs ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Allow anon select site_config" ON site_config;
-DROP POLICY IF EXISTS "Allow anon insert site_config" ON site_config;
-DROP POLICY IF EXISTS "Allow anon update site_config" ON site_config;
-DROP POLICY IF EXISTS "Allow anon delete site_config" ON site_config;
+-- 移除只允许 authenticated 写入的旧策略
+DROP POLICY IF EXISTS "Authenticated users can update configs" ON configs;
+DROP POLICY IF EXISTS "Allow anon insert configs" ON configs;
+DROP POLICY IF EXISTS "Allow anon update configs" ON configs;
+DROP POLICY IF EXISTS "Allow anon delete configs" ON configs;
 
-CREATE POLICY "Allow anon select site_config"
-ON site_config FOR SELECT
-TO anon, authenticated
-USING (true);
-
-CREATE POLICY "Allow anon insert site_config"
-ON site_config FOR INSERT
+-- 读取策略已存在（"Anyone can view configs"），这里只补齐写入相关策略
+CREATE POLICY "Allow anon insert configs"
+ON configs FOR INSERT
 TO anon, authenticated
 WITH CHECK (true);
 
-CREATE POLICY "Allow anon update site_config"
-ON site_config FOR UPDATE
+CREATE POLICY "Allow anon update configs"
+ON configs FOR UPDATE
 TO anon, authenticated
 USING (true)
 WITH CHECK (true);
 
-CREATE POLICY "Allow anon delete site_config"
-ON site_config FOR DELETE
+CREATE POLICY "Allow anon delete configs"
+ON configs FOR DELETE
 TO anon, authenticated
 USING (true);
 
--- 让前端 upsert 能按主键判断冲突
-CREATE UNIQUE INDEX IF NOT EXISTS site_config_key_idx ON site_config(key);
-
--- 配置变更实时推送到已打开的管理端页面
+-- 配置变更实时推送到已打开的管理端 / 选手端页面
 DO $$
 BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE site_config;
+    ALTER PUBLICATION supabase_realtime ADD TABLE configs;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -117,5 +121,5 @@ END $$;
 -- ============================================
 -- 验证（执行后可逐条检查）
 -- ============================================
--- SELECT policyname, cmd, roles FROM pg_policies WHERE tablename IN ('judges','site_config');
--- SELECT key, updated_at FROM site_config;
+-- SELECT policyname, cmd, roles FROM pg_policies WHERE tablename IN ('judges','configs');
+-- SELECT key, updated_at FROM configs ORDER BY key;

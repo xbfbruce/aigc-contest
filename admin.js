@@ -85,7 +85,7 @@ function switchTab(tabName, event) {
 
 // 加载作品规格配置
 function loadSpecsForm() {
-    const specs = JSON.parse(localStorage.getItem('submissionSpecs') || '{}');
+    const specs = storage.getCachedConfig('submissionSpecs') || {};
     
     // 视频配置
     if (specs.video) {
@@ -123,6 +123,65 @@ function loadSpecsForm() {
     // 更新显示状态
     toggleCategory('video');
     toggleCategory('image');
+    updateSpecsSyncBanner();
+}
+
+// 规格配置的云端同步状态提示
+function updateSpecsSyncBanner() {
+    const banner = document.getElementById('specsSyncBanner');
+    if (!banner) return;
+
+    const state = storage.getCloudConfigState('submissionSpecs');
+
+    if (state === 'cloud') {
+        banner.style.display = 'none';
+        return;
+    }
+
+    banner.style.display = 'block';
+
+    if (state === 'legacy') {
+        banner.className = 'sync-banner sync-banner-warn';
+        banner.innerHTML = 'ℹ️ 云端保存的是系统初始化时的旧规格（与当前要求不一致），已自动忽略。<br>'
+            + '下方显示的是本机正在使用的规格。<button class="btn-primary btn-sm" style="margin-left:0.75rem;" '
+            + 'onclick="uploadLocalSpecsToCloud()">把本机规格设为全站标准</button>';
+        return;
+    }
+
+    if (state === 'missing') {
+        banner.className = 'sync-banner sync-banner-warn';
+        banner.innerHTML = '⚠️ 云端还没有保存投稿规格，当前配置只对本设备生效，选手端看到的是各自设备的默认值。'
+            + '<button class="btn-primary btn-sm" style="margin-left:0.75rem;" '
+            + 'onclick="uploadLocalSpecsToCloud()">上传本机规格到云端</button>';
+        return;
+    }
+
+    banner.className = 'sync-banner sync-banner-error';
+    banner.innerHTML = '⚠️ 无法读取云端配置，当前显示的是本机缓存。<br>'
+        + '请先在 Supabase SQL Editor 执行 migration_cloud_accounts_and_config.sql，然后刷新页面。';
+}
+
+// 把本机规格上传为全站标准
+async function uploadLocalSpecsToCloud() {
+    const specs = storage.getCachedConfig('submissionSpecs');
+    if (!specs) {
+        alert('本机没有可上传的规格配置，请先在下方填写并保存。');
+        return;
+    }
+
+    if (!confirm('将把当前这台设备上的投稿规格设为全站标准？\n\n上传后所有设备的管理端与选手端都会使用这份规格。')) {
+        return;
+    }
+
+    const result = await storage.saveConfig('submissionSpecs', specs);
+
+    if (result.syncedToCloud) {
+        alert('✅ 已上传到云端，成为全站标准配置！');
+    } else {
+        alert(`❌ 上传失败：${result.cloudError || '未知原因'}`);
+    }
+
+    updateSpecsSyncBanner();
 }
 
 // 切换类别显示
@@ -136,7 +195,7 @@ function toggleCategory(category) {
     }
 }
 
-// 保存作品规格配置（写入云端 site_config，所有设备与选手端同步生效）
+// 保存作品规格配置（写入云端 configs 表，所有设备与选手端同步生效）
 document.getElementById('specsForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
@@ -183,6 +242,8 @@ document.getElementById('specsForm').addEventListener('submit', async function(e
     } else {
         alert(`⚠️ 配置只保存在当前设备！\n\n原因：${result.cloudError || '云端写入失败'}\n\n其他设备与选手端不会看到本次修改，请先在 Supabase 执行 migration_cloud_accounts_and_config.sql，然后重新保存。`);
     }
+
+    updateSpecsSyncBanner();
 });
 
 // 恢复默认配置
@@ -602,7 +663,7 @@ ${JSON.stringify(scores.slice(0, 3), null, 2)}${scores.length > 3 ? '\n... 还�
     alert('调试信息已输出到控制台\n按F12打开开发者工具查看Console标签');
 }
 
-// 管理员设置（账号密码保存到云端 site_config）
+// 管理员设置（账号密码保存到云端 configs 表）
 document.getElementById('adminSettingsForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
@@ -613,7 +674,7 @@ document.getElementById('adminSettingsForm').addEventListener('submit', async fu
     
     // 先同步云端配置，避免用本机旧密码校验
     await storage.refreshCloudConfig();
-    const adminConfig = storage.getConfig('adminConfig') || { account: 'admin', password: 'admin123' };
+    const adminConfig = storage.getCachedConfig('adminConfig') || { account: 'admin', password: 'admin123' };
     
     // 验证当前密码（兼容明文与云端哈希两种存储形式）
     const verified = await storage.loginAdmin(adminConfig.account, currentPassword);
@@ -1084,17 +1145,21 @@ window.addEventListener('load', async () => {
         ]));
     }
 
-    // 3) 把本机已有、云端还缺失的配置补传到云端（首次启用云端配置时的历史迁移）
+    // 3) 把本机已有、云端还缺失的配置补传到云端
+    //    投稿规格影响全站的上传校验规则，不自动上传，
+    //    改由管理员在「作品规格配置」页确认后手动保存
     try {
-        const syncResult = await storage.syncLocalConfigToCloud();
+        const syncResult = await storage.syncLocalConfigToCloud(['adminConfig', 'scoringItems']);
         if (syncResult.cloudAvailable && syncResult.synced > 0) {
             console.log(`✅ 已将 ${syncResult.synced} 项本机配置上传到云端`);
         } else if (!syncResult.cloudAvailable) {
-            console.warn('⚠️ 配置云端同步不可用：', syncResult.error);
+            console.warn('⚠️ 配置云端同步不可用：', (syncResult.errors || []).join('；'));
         }
     } catch (e) {
         console.warn('⚠️ 配置云端同步异常:', e);
     }
+
+    updateSpecsSyncBanner();
     
     // 评委账号统一存储在云端 judges 表（跨设备共享），
     // 不再写入任何默认演示账号，避免各设备出现「仅本机」的幽灵账号。
@@ -1626,8 +1691,8 @@ function initAdminRealtime() {
                     p => scheduleLiveRefresh('scores:' + p.eventType))
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'works' },
                     p => scheduleLiveRefresh('works:' + p.eventType))
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'site_config' },
-                    p => handleCloudConfigChange('site_config:' + p.eventType))
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'configs' },
+                    p => handleCloudConfigChange('configs:' + p.eventType))
                 .subscribe(status => console.log('📡 Realtime 状态:', status));
         } catch (e) {
             console.warn('⚠️ Realtime 订阅失败，仅用轮询:', e);

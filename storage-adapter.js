@@ -699,11 +699,26 @@ class StorageAdapter {
 
     // ============================================
     // 站点配置（投稿规格 / 管理员账号 / 评分项）
-    // 云端 site_config 表为准，localStorage 作为缓存与离线兜底
+    // 云端 configs 表为准，localStorage 只作缓存与离线兜底
     // ============================================
 
-    get CONFIG_KEYS() {
-        return ['submissionSpecs', 'adminConfig', 'scoringItems'];
+    /** 本机 localStorage 键 ↔ 云端 configs.key */
+    get CONFIG_KEY_MAP() {
+        return {
+            submissionSpecs: 'submission_specs',
+            adminConfig: 'admin_config',
+            scoringItems: 'scoring_items'
+        };
+    }
+
+    /**
+     * 云端配置的结构版本号。
+     * configs 表里存在 2026-10-20 初始化写入的种子行（字段结构与现在不同，
+     * 例如 image.minSizeMB=5），版本号不匹配的行一律视为历史数据，
+     * 绝不用它覆盖本机正在使用的配置。
+     */
+    get CONFIG_SCHEMA() {
+        return 2;
     }
 
     _readLocalConfig(key) {
@@ -716,13 +731,6 @@ class StorageAdapter {
         }
     }
 
-    /**
-     * 读取配置（同步，取自 refreshCloudConfig 刷新后的本机缓存）
-     */
-    getConfig(key) {
-        return this._readLocalConfig(key);
-    }
-
     _writeLocalConfig(key, value) {
         try {
             localStorage.setItem(key, JSON.stringify(value));
@@ -732,8 +740,21 @@ class StorageAdapter {
     }
 
     /**
-     * 从云端拉取全部站点配置并刷新本机缓存
-     * 页面启动时调用一次，之后的同步读取即可拿到最新配置
+     * 同步读取配置缓存（页面启动时先 await refreshCloudConfig，之后即可同步取用）
+     */
+    getCachedConfig(key) {
+        return this._readLocalConfig(key);
+    }
+
+    /**
+     * 云端配置状态：cloud（可信）/ legacy（历史种子数据）/ missing（云端没有）/ unknown（还没查过或查不到）
+     */
+    getCloudConfigState(key) {
+        return (this._cloudConfigState || {})[key] || 'unknown';
+    }
+
+    /**
+     * 从云端拉取配置并刷新本机缓存
      */
     async refreshCloudConfig() {
         if (!(this.useSupabase && this.supabase)) {
@@ -742,24 +763,46 @@ class StorageAdapter {
 
         try {
             const { data, error } = await this.supabase
-                .from('site_config')
+                .from('configs')
                 .select('key, value, updated_at');
 
             if (error) throw error;
 
-            const rows = data || [];
-            this._cloudConfigKeys = new Set(rows.map(r => r.key));
-
-            rows.forEach(row => {
-                if (!row || !row.key || row.value === null || row.value === undefined) return;
-                this._writeLocalConfig(row.key, row.value);
+            const byCloudKey = {};
+            (data || []).forEach(row => {
+                if (row && row.key) byCloudKey[row.key] = row;
             });
 
-            console.log(`✅ 已同步云端站点配置：${rows.map(r => r.key).join(', ') || '(空)'}`);
-            return { ok: true, updated: rows.length, cloudKeys: [...this._cloudConfigKeys] };
+            const state = {};
+            const map = this.CONFIG_KEY_MAP;
+
+            Object.keys(map).forEach(localKey => {
+                const row = byCloudKey[map[localKey]];
+                if (!row) {
+                    state[localKey] = 'missing';
+                    return;
+                }
+
+                const value = row.value;
+                if (!value || typeof value !== 'object' || value._schema !== this.CONFIG_SCHEMA) {
+                    // 历史初始化数据，不用它覆盖本机正在使用的配置
+                    state[localKey] = 'legacy';
+                    console.warn(`ℹ️ 云端 ${map[localKey]} 是历史初始化数据，已忽略（以本机配置为准）`);
+                    return;
+                }
+
+                const clean = { ...value };
+                delete clean._schema;
+                this._writeLocalConfig(localKey, clean);
+                state[localKey] = 'cloud';
+            });
+
+            this._cloudConfigState = state;
+            console.log('✅ 云端配置状态:', state);
+            return { ok: true, state };
         } catch (error) {
             const reason = this._friendlyCloudError(error);
-            console.warn('⚠️ 读取云端站点配置失败，使用本机缓存:', reason);
+            console.warn('⚠️ 读取云端配置失败，使用本机缓存:', reason);
             return { ok: false, reason };
         }
     }
@@ -772,18 +815,25 @@ class StorageAdapter {
         // 本机缓存始终保留完整值（含明文密码），保证离线可用
         this._writeLocalConfig(key, value);
 
+        const cloudKey = this.CONFIG_KEY_MAP[key];
+        if (!cloudKey) {
+            return { syncedToCloud: false, cloudError: `未知配置项：${key}` };
+        }
+
         if (!(this.useSupabase && this.supabase)) {
             return { syncedToCloud: false, cloudError: '当前为 localStorage 模式，配置只保存在本设备' };
         }
 
         try {
-            const payload = key === 'adminConfig' ? await this._hashAdminConfig(value) : value;
+            const base = key === 'adminConfig' ? await this._hashAdminConfig(value) : value;
+            const payload = { ...base, _schema: this.CONFIG_SCHEMA };
+
             const { error } = await this.supabase
-                .from('site_config')
-                .upsert([{ key, value: payload, updated_at: new Date().toISOString() }]);
+                .from('configs')
+                .upsert([{ key: cloudKey, value: payload, updated_at: new Date().toISOString() }]);
 
             if (error) throw error;
-            if (this._cloudConfigKeys) this._cloudConfigKeys.add(key);
+            if (this._cloudConfigState) this._cloudConfigState[key] = 'cloud';
             return { syncedToCloud: true };
         } catch (error) {
             const cloudError = this._friendlyCloudError(error);
@@ -807,16 +857,20 @@ class StorageAdapter {
      */
     async deleteConfig(key) {
         localStorage.removeItem(key);
+
+        const cloudKey = this.CONFIG_KEY_MAP[key];
+        if (!cloudKey) return { syncedToCloud: false, cloudError: `未知配置项：${key}` };
         if (!(this.useSupabase && this.supabase)) {
             return { syncedToCloud: false, cloudError: '当前为 localStorage 模式' };
         }
+
         try {
             const { error } = await this.supabase
-                .from('site_config')
+                .from('configs')
                 .delete()
-                .eq('key', key);
+                .eq('key', cloudKey);
             if (error) throw error;
-            if (this._cloudConfigKeys) this._cloudConfigKeys.delete(key);
+            if (this._cloudConfigState) this._cloudConfigState[key] = 'missing';
             return { syncedToCloud: true };
         } catch (error) {
             return { syncedToCloud: false, cloudError: this._friendlyCloudError(error) };
@@ -824,40 +878,44 @@ class StorageAdapter {
     }
 
     /**
-     * 把本机已有、但云端还缺失的配置补传到云端
-     * 用于第一次启用云端配置时的历史数据迁移
+     * 把本机配置补传到云端
+     * @param {string[]|null} keys 需要同步的配置键，默认检查全部
+     * @param {boolean} includeLegacy 是否覆盖云端的历史种子数据
+     *        （投稿规格影响全站校验规则，必须由管理员确认后手动上传）
      */
-    async syncLocalConfigToCloud() {
+    async syncLocalConfigToCloud(keys = null, includeLegacy = false) {
         if (!(this.useSupabase && this.supabase)) {
-            return { cloudAvailable: false, synced: 0, skipped: 0 };
+            return { cloudAvailable: false, synced: 0, skipped: [], errors: [] };
         }
 
-        let cloudKeys = new Set();
-        try {
-            const { data, error } = await this.supabase.from('site_config').select('key');
-            if (error) throw error;
-            cloudKeys = new Set((data || []).map(r => r.key));
-            this._cloudConfigKeys = cloudKeys;
-        } catch (error) {
-            return { cloudAvailable: false, synced: 0, skipped: 0, error: this._friendlyCloudError(error) };
+        const refresh = await this.refreshCloudConfig();
+        if (!refresh.ok) {
+            return { cloudAvailable: false, synced: 0, skipped: [], errors: [refresh.reason] };
         }
 
+        const targets = keys || Object.keys(this.CONFIG_KEY_MAP);
         let synced = 0;
+        const skipped = [];
         const errors = [];
-        for (const key of this.CONFIG_KEYS) {
-            if (cloudKeys.has(key)) continue;
+
+        for (const key of targets) {
+            const state = this.getCloudConfigState(key);
+            if (state === 'cloud') { skipped.push(key); continue; }
+            if (state === 'legacy' && !includeLegacy) { skipped.push(key); continue; }
+
             const local = this._readLocalConfig(key);
-            if (!local) continue;
+            if (!local) { skipped.push(key); continue; }
+
             const result = await this.saveConfig(key, local);
             if (result.syncedToCloud) synced++;
             else errors.push(`${key}：${result.cloudError}`);
         }
 
-        return { cloudAvailable: true, synced, errors };
+        return { cloudAvailable: true, synced, skipped, errors };
     }
 
     /**
-     * 管理员登录校验：同时兼容明文密码（旧本机数据）与密码哈希（云端数据）
+     * 管理员登录校验：兼容明文密码（旧本机数据）与密码哈希（云端数据）
      * @returns {Promise<{account:string, source:string}|null>}
      */
     async loginAdmin(account, password) {
