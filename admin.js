@@ -31,7 +31,11 @@ document.getElementById('adminLoginForm').addEventListener('submit', async funct
             loadWorksTable();
             initAdminRealtime();  // 开启评分/作品实时推送 + 轮询兜底
         } else {
-            alert('账号或密码错误！');
+            if (!storage.useSupabase && storage.cloudUnavailableReason) {
+                alert(`无法连接云端数据库（${storage.cloudUnavailableReason}）。\n\n请检查网络后重新打开页面；若仍失败请清除浏览器缓存后重试。`);
+            } else {
+                alert('账号或密码错误！');
+            }
         }
     } catch (error) {
         console.error('❌ 管理员登录失败:', error);
