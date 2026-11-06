@@ -995,7 +995,7 @@ async function viewWorkDetail(workId) {
         // 获取作者信息
         const authorName = work.contestants?.name || work.author || '未知';
         const school = work.contestants?.school || work.school || '未知';
-        const groupName = work.group_name || '未分配';
+        const groupName = storage.displayGroupName(work.group_name);
         
         const detail = `
 作品标题：${work.title}
@@ -1196,6 +1196,10 @@ window.addEventListener('load', async () => {
 
     updateSpecsSyncBanner();
     updateAdminConfigSyncBanner();
+
+    // 排名统计的组别下拉框统一由 storage.CONTEST_GROUPS 生成，
+    // 与选手名单、评委端使用同一份名称，避免出现筛不出作品的组别
+    storage.populateGroupSelect('groupFilter');
     
     // 评委账号统一存储在云端 judges 表（跨设备共享），
     // 不再写入任何默认演示账号，避免各设备出现「仅本机」的幽灵账号。
@@ -1328,8 +1332,8 @@ async function loadGroupRanking() {
         // 获取所有作品
         const works = await storage.listWorks();
         
-        // 按组别过滤
-        let filteredWorks = groupFilter ? works.filter(w => w.group_name === groupFilter) : works;
+        // 按组别过滤（组别名归一化后比较，兼容历史数据里的括号/简写差异）
+        let filteredWorks = groupFilter ? works.filter(w => storage.isSameGroup(w.group_name, groupFilter)) : works;
         
         if (filteredWorks.length === 0) {
             container.innerHTML = '<div class="empty-state">该组别暂无作品</div>';
@@ -1390,7 +1394,7 @@ async function loadGroupRanking() {
             rankings.push({
                 work_id: work.id,
                 title: work.title,
-                group_name: work.group_name,
+                group_name: storage.displayGroupName(work.group_name),
                 category: work.category,
                 author_name: authorName,
                 school: school,
@@ -1433,7 +1437,7 @@ function renderRankingTable(rankings, groupFilter) {
     
     let html = `
         <div style="margin-bottom: 1rem;">
-            <strong>组别：</strong>${groupFilter || '全部'} | 
+            <strong>组别：</strong>${groupFilter ? escapeHtml(storage.displayGroupName(groupFilter)) : '全部'} | 
             <strong>作品数：</strong>${rankings.length} | 
             <strong>已评分：</strong>${rankings.filter(r => r.avg_score !== null).length}
         </div>
@@ -1499,7 +1503,7 @@ async function exportRankingToExcel() {
     try {
         // 获取排名数据
         const works = await storage.listWorks();
-        let filteredWorks = groupFilter ? works.filter(w => w.group_name === groupFilter) : works;
+        let filteredWorks = groupFilter ? works.filter(w => storage.isSameGroup(w.group_name, groupFilter)) : works;
         
         if (filteredWorks.length === 0) {
             alert('没有可导出的数据');
@@ -1569,7 +1573,7 @@ async function exportRankingToExcel() {
                 title: work.title,
                 author_name: authorName,
                 school: school,
-                group_name: work.group_name || '',
+                group_name: storage.displayGroupName(work.group_name),
                 category: getCategoryName(work.category),
                 judge_count: judgeCount,
                 avg_score: avgScore,

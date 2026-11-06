@@ -800,6 +800,92 @@ class StorageAdapter {
         };
     }
 
+    // ============================================
+    // 参赛组别（全站唯一来源，选手端/评委端/管理端共用）
+    // ============================================
+
+    /**
+     * 8 个参赛组别，与选手名单 contestants.json 完全一致。
+     * 任何页面的组别下拉框都应由此生成，不要再各写一份，
+     * 否则一旦名称有出入（例如「视频高中组」vs「视频高中组（含中专、职高）」），
+     * 评委端按名称精确匹配就会一个作品都筛不出来。
+     */
+    get CONTEST_GROUPS() {
+        return [
+            { value: '视频类小学低年级组', label: '视频类小学低年级组', type: 'video' },
+            { value: '视频类小学高年级组', label: '视频类小学高年级组', type: 'video' },
+            { value: '视频类初中组', label: '视频类初中组', type: 'video' },
+            { value: '视频高中组（含中专、职高）', label: '视频高中组（含中专、职高）', type: 'video' },
+            { value: '漫画类小学低年级组', label: '漫画类小学低年级组', type: 'image' },
+            { value: '漫画类小学高年级组', label: '漫画类小学高年级组', type: 'image' },
+            { value: '漫画类初中组', label: '漫画类初中组', type: 'image' },
+            { value: '漫画类高中组（含中专、职高）', label: '漫画类高中组（含中专、职高）', type: 'image' }
+        ];
+    }
+
+    /**
+     * 组别名称归一化：历史数据里括号有全角/半角混用（「（含中专、职高)」），
+     * 也存在省略后缀的简写（「视频高中组」）。统一成同一种写法后再比较，
+     * 这样云端已存在的作品不需要迁移就能被正确筛选出来。
+     */
+    normalizeGroupName(name) {
+        if (!name) return '';
+        let n = String(name).trim().replace(/\s+/g, '');
+        // 括号统一为全角
+        n = n.replace(/\(/g, '（').replace(/\)/g, '）');
+        // 简写 → 全称
+        const aliases = {
+            '视频高中组': '视频高中组（含中专、职高）',
+            '漫画类高中组': '漫画类高中组（含中专、职高）',
+            '视频类高中组': '视频高中组（含中专、职高）',
+            '漫画高中组': '漫画类高中组（含中专、职高）'
+        };
+        return aliases[n] || n;
+    }
+
+    /**
+     * 用于界面展示的组别名：优先取标准写法，未知组别原样返回（归一化括号后）
+     */
+    displayGroupName(name) {
+        const normalized = this.normalizeGroupName(name);
+        if (!normalized) return '未分配';
+        const hit = this.CONTEST_GROUPS.find(g => this.normalizeGroupName(g.value) === normalized);
+        return hit ? hit.label : normalized;
+    }
+
+    /**
+     * 判断作品的组别是否命中筛选条件
+     */
+    isSameGroup(workGroup, filterGroup) {
+        if (!filterGroup) return true;
+        return this.normalizeGroupName(workGroup) === this.normalizeGroupName(filterGroup);
+    }
+
+    /**
+     * 用标准组别填充下拉框（视频类 / 漫画类 分组展示）
+     * @param {HTMLSelectElement|string} select 目标 select 元素或其 id
+     * @param {string} selectedValue 需要保持选中的值
+     */
+    populateGroupSelect(select, selectedValue = '') {
+        const el = typeof select === 'string' ? document.getElementById(select) : select;
+        if (!el) return;
+
+        const wanted = this.normalizeGroupName(selectedValue || el.value || '');
+        const build = (type) => this.CONTEST_GROUPS
+            .filter(g => g.type === type)
+            .map(g => `<option value="${g.value}">${g.label}</option>`)
+            .join('');
+
+        el.innerHTML = '<option value="">全部组别</option>'
+            + `<optgroup label="视频类">${build('video')}</optgroup>`
+            + `<optgroup label="漫画类">${build('image')}</optgroup>`;
+
+        // 归一化后匹配，兼容旧页面里遗留的简写值
+        const options = Array.from(el.options);
+        const match = options.find(o => o.value && this.normalizeGroupName(o.value) === wanted);
+        el.value = match ? match.value : '';
+    }
+
     /**
      * 从云端拉取配置并刷新本机缓存
      */

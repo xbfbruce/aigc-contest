@@ -56,14 +56,8 @@
                     <div class="form-group" style="max-width: 400px; margin-top: 1rem;">
                         <label for="groupFilter">选择组别</label>
                         <select id="groupFilter" onchange="filterWorksByGroup()">
+                            <!-- 组别选项由 storage.populateGroupSelect 统一生成，与选手名单、管理端保持一致 -->
                             <option value="">全部组别</option>
-                            <option value="视频类小学低年级组">视频类小学低年级组</option>
-                            <option value="视频类小学高年级组">视频类小学高年级组</option>
-                            <option value="视频类初中组">视频类初中组</option>
-                            <option value="视频高中组">视频高中组</option>
-                            <option value="漫画类小学低年级组">漫画类小学低年级组</option>
-                            <option value="漫画类小学高年级组">漫画类小学高年级组</option>
-                            <option value="漫画类初中组">漫画类初中组</option>
                         </select>
                     </div>
                 </div>

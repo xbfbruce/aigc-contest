@@ -72,7 +72,8 @@ function applyGroupFilter() {
     if (!currentGroupFilter) {
         filteredWorks = [...works];
     } else {
-        filteredWorks = works.filter(w => w.group_name === currentGroupFilter);
+        // 组别名称在历史数据里存在全角/半角括号混用与简写，统一归一化后再比较
+        filteredWorks = works.filter(w => storage.isSameGroup(w.group_name, currentGroupFilter));
     }
     
     console.log(`📊 显示 ${filteredWorks.length} 个作品 (总共 ${works.length} 个)`);
@@ -140,7 +141,7 @@ async function renderWorksList() {
                 </div>
                 <div class="work-meta">
                     分类：${getCategoryName(work.category)} | 
-                    组别：${work.group_name || '未分配'} | 
+                    组别：${storage.displayGroupName(work.group_name)} | 
                     学校：${work.contestants?.school || work.school || '未知'} | 
                     ${scored ? '得分：' + scored.totalScore : '点击开始评分'}
                 </div>
@@ -200,7 +201,7 @@ function openScoringPanel(workId) {
     // 显示组别信息
     const groupDisplay = document.getElementById('detailGroup');
     if (groupDisplay) {
-        groupDisplay.textContent = currentWork.group_name || '未分配';
+        groupDisplay.textContent = storage.displayGroupName(currentWork.group_name);
     }
     
     // 将扁平的文件字段转换为 files 数组（兼容两种数据结构）
@@ -803,6 +804,9 @@ document.addEventListener('keydown', function(e) {
 
 // 初始化
 window.addEventListener('load', async () => {
+    // 组别下拉框统一由 storage.CONTEST_GROUPS 生成，避免各端口名称不一致
+    storage.populateGroupSelect('groupFilter');
+
     // 先从云端拉取共享配置（评分项等）
     try {
         await storage.refreshCloudConfig();

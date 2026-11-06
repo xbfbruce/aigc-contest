@@ -390,7 +390,7 @@ document.getElementById('contestantForm').addEventListener('submit', async funct
         const workData = {
             contestant_id: contestantId,
             category: formData.get('category'),
-            group_name: document.getElementById('group')?.value || currentContestant?.group || '',
+            group_name: storage.normalizeGroupName(document.getElementById('group')?.value || currentContestant?.group || ''),
             title: formData.get('workTitle'),
             description: formData.get('description') || '',
             file_name: uploadedFileUrls.map(f => f.name).join(', '),
@@ -865,8 +865,10 @@ async function contestantLogin(loginInput) {
     }
     
     if (matched.group) {
-        document.getElementById('group').value = matched.group;
-        document.getElementById('groupDisplay').textContent = matched.group;
+        // 名单里的组别名存在全角/半角括号混用，统一成标准写法后再填入，
+        // 保证提交到云端的 group_name 与评委端、管理端的筛选值一致
+        document.getElementById('group').value = storage.normalizeGroupName(matched.group);
+        document.getElementById('groupDisplay').textContent = storage.displayGroupName(matched.group);
         document.getElementById('groupDisplayGroup').style.display = 'block';
     }
     
@@ -993,8 +995,8 @@ window.addEventListener('load', () => {
                 }
                 
                 if (currentContestant.group) {
-                    document.getElementById('group').value = currentContestant.group;
-                    document.getElementById('groupDisplay').textContent = currentContestant.group;
+                    document.getElementById('group').value = storage.normalizeGroupName(currentContestant.group);
+                    document.getElementById('groupDisplay').textContent = storage.displayGroupName(currentContestant.group);
                     document.getElementById('groupDisplayGroup').style.display = 'block';
                 }
             }
