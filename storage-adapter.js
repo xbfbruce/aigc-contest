@@ -5,12 +5,16 @@
  * 支持无缝降级机制
  */
 
+// 页面代码版本：连接自检会显示它，用于判断某台设备是否还在用浏览器旧缓存
+const APP_VERSION = '20261106b';
+
 class StorageAdapter {
     constructor() {
         this.useSupabase = false;
         this.supabase = null;
         // 云端不可用的原因（SDK 未加载 / 初始化失败），用于给用户准确提示
         this.cloudUnavailableReason = null;
+        this.appVersion = APP_VERSION;
         
         // 尝试初始化Supabase
         this.initSupabase();
@@ -1475,6 +1479,132 @@ class StorageAdapter {
             };
         }
         return { total: 0, today: 0, byPage: [] };
+    }
+
+    // ============================================
+    // 连接自检（跨设备排障用）
+    // ============================================
+
+    /**
+     * 逐项检测当前设备的运行环境，返回可读的诊断结果。
+     * 不修改任何数据，只做只读查询，可安全地在任何设备上反复点击。
+     * @returns {Promise<{ok:boolean, checks:Array<{name:string, ok:boolean, detail:string}>, durationMs:number, finishedAt:string, appVersion:string}>}
+     */
+    async runSelfTest() {
+        const startedAt = Date.now();
+        const checks = [];
+        const add = (name, ok, detail) => {
+            checks.push({ name, ok: !!ok, detail: detail || '' });
+            return !!ok;
+        };
+
+        // 1. 页面代码版本（判断是否还在用旧缓存）
+        add('页面代码版本', true,
+            `当前 ${this.appVersion}。若与主办方公布的最新版本不一致，说明浏览器还在使用旧缓存文件，请清除缓存或改用无痕窗口重新打开`);
+
+        // 2. Supabase SDK 是否加载成功
+        const sdkLoaded = typeof window.supabase !== 'undefined';
+        add('Supabase SDK', sdkLoaded,
+            sdkLoaded
+                ? '已加载本站内置的 vendor/supabase.min.js，不依赖外部 CDN'
+                : '未加载：本地 vendor 文件缺失且 CDN 兜底也失败，此时页面只能读写本机数据，云端账号一律登录不上');
+
+        // 3. 云端客户端是否初始化
+        const clientReady = this.useSupabase && !!this.supabase;
+        add('云端客户端初始化', clientReady,
+            clientReady
+                ? `已连接 ${this.supabaseUrl || 'Supabase 项目'}`
+                : `未启用云端，当前为纯本机模式${this.cloudUnavailableReason ? '：' + this.cloudUnavailableReason : ''}`);
+
+        // 4. 密码哈希能力（crypto.subtle 缺失时应有纯 JS 兜底）
+        const subtleAvailable = !!(window.crypto && window.crypto.subtle && typeof window.crypto.subtle.digest === 'function');
+        const EXPECTED_HASH_123456 = '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
+        try {
+            const hash = await this.hashPassword('123456');
+            add('密码哈希计算', hash === EXPECTED_HASH_123456,
+                hash === EXPECTED_HASH_123456
+                    ? `结果正确（Web Crypto ${subtleAvailable ? '可用' : '不可用，已自动启用内置纯 JS 兜底'}）`
+                    : `结果与标准值不一致：${hash}`);
+        } catch (error) {
+            add('密码哈希计算', false, '计算异常：' + (error && error.message ? error.message : error));
+        }
+
+        // 5. 本机缓存可用性（隐私模式下可能不可写）
+        try {
+            window.localStorage.setItem('__selftest__', '1');
+            window.localStorage.removeItem('__selftest__');
+            add('本机缓存 localStorage', true, '可正常读写');
+        } catch (error) {
+            add('本机缓存 localStorage', false,
+                '不可用（可能处于隐私/无痕模式或被浏览器策略禁用）：' + (error && error.message ? error.message : error));
+        }
+
+        // 6. 云端数据库连通性 + 数据量 + 耗时
+        if (clientReady) {
+            const netStartedAt = Date.now();
+            try {
+                const { count: judgeCount, error: judgeError } = await this.supabase
+                    .from('judges')
+                    .select('*', { count: 'exact', head: true });
+                if (judgeError) throw judgeError;
+                const elapsed = Date.now() - netStartedAt;
+
+                let worksNote = '';
+                try {
+                    const { count: worksCount, error: worksError } = await this.supabase
+                        .from('works')
+                        .select('*', { count: 'exact', head: true });
+                    if (!worksError) worksNote = `，作品 ${worksCount || 0} 件`;
+                } catch (_) { /* 作品数量只是附加信息，失败不影响连通性判断 */ }
+
+                add('云端数据库连通', true,
+                    `响应正常，耗时 ${elapsed} ms；云端评委账号 ${judgeCount || 0} 个${worksNote}`);
+            } catch (error) {
+                add('云端数据库连通', false,
+                    `请求失败（耗时 ${Date.now() - netStartedAt} ms）：${error && error.message ? error.message : error}。` +
+                    '多为当前网络屏蔽或无法访问 supabase.co，可切换到手机流量后重试');
+            }
+        } else {
+            add('云端数据库连通', false, '未发起请求（云端客户端未初始化，见上面两项）');
+        }
+
+        // 7. 本机缓存里的评委账号（仅离线兜底用，正常应以云端为准）
+        try {
+            const localJudges = this._getLocalJudges();
+            add('本机缓存评委账号', true,
+                `${localJudges.length} 个${localJudges.length ? '（' + localJudges.map(j => j.account).join('、') + '）' : ''}，仅在云端不可用时兜底`);
+        } catch (error) {
+            add('本机缓存评委账号', false, '读取失败：' + (error && error.message ? error.message : error));
+        }
+
+        // 8. 浏览器环境（便于远程排障）
+        add('浏览器环境', true,
+            `${(navigator.userAgent || '未知').slice(0, 120)}｜页面地址 ${window.location.href}`);
+
+        return {
+            ok: checks.every(c => c.ok),
+            checks,
+            durationMs: Date.now() - startedAt,
+            finishedAt: new Date().toLocaleString('zh-CN'),
+            appVersion: this.appVersion
+        };
+    }
+
+    /**
+     * 把自检结果转成便于复制/截图发送的纯文本报告
+     */
+    formatSelfTestReport(result) {
+        if (!result) return '';
+        const lines = [
+            `AIGC 大赛连接自检报告`,
+            `结论：${result.ok ? '✅ 全部正常' : '❌ 存在异常项，见下方标记'}`,
+            `检测时间：${result.finishedAt}（总耗时 ${result.durationMs} ms）`,
+            ''
+        ];
+        result.checks.forEach((c, i) => {
+            lines.push(`${i + 1}. ${c.ok ? '✅' : '❌'} ${c.name}：${c.detail}`);
+        });
+        return lines.join('\n');
     }
 }
 

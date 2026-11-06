@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>评委端 - 作品评审</title>
-    <link rel="stylesheet" href="styles.css?v=20261106a">
+    <link rel="stylesheet" href="styles.css?v=20261106b">
     
     <!-- Supabase SDK -->
     <!-- Supabase SDK 已内置到本站 vendor/ 目录。
          原因：国内网络访问 cdn.jsdelivr.net 经常失败或极慢，SDK 一旦加载不到，
          整站会静默降级为"仅本机数据"模式，评委账号就无法跨设备登录。
          只有本地文件缺失时才依次回退到两个 CDN。 -->
-    <script src="vendor/supabase.min.js?v=20261106a"></script>
+    <script src="vendor/supabase.min.js?v=20261106b"></script>
     <script>
         if (typeof window.supabase === 'undefined') {
             document.write('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"><\/script>');
@@ -50,6 +50,9 @@
                     </div>
                     <button type="submit" class="btn-primary">登录</button>
                 </form>
+
+                <!-- 连接自检：登录不上时点这里，可判断是旧缓存、SDK 未加载还是云端连不通 -->
+                <div id="selfTestMount" class="selftest-mount"></div>
             </section>
 
             <!-- 评审工作台（登录后显示） -->
@@ -170,9 +173,10 @@
         </div>
     </div>
 
-    <script src="storage-adapter.js?v=20261106a"></script>
-    <script src="analytics.js?v=20261106a"></script>
-    <script src="judge.js?v=20261106a"></script>
-    <script src="background.js?v=20261106a"></script>
+    <script src="storage-adapter.js?v=20261106b"></script>
+    <script src="selftest.js?v=20261106b"></script>
+    <script src="analytics.js?v=20261106b"></script>
+    <script src="judge.js?v=20261106b"></script>
+    <script src="background.js?v=20261106b"></script>
 </body>
 </html>

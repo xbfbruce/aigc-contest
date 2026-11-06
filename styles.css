@@ -1151,3 +1151,144 @@ tbody tr:hover {
     border-color: rgba(239, 68, 68, 0.45);
     color: #b91c1c;
 }
+
+/* ============================================
+   连接自检（登录页排障面板）
+   ============================================ */
+.selftest-mount {
+    margin-top: 1.5rem;
+    text-align: left;
+}
+
+.selftest-trigger {
+    background: transparent;
+    border: 1px dashed var(--border-color);
+    color: var(--text-secondary);
+    padding: 0.5rem 0.85rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    width: 100%;
+}
+
+.selftest-trigger:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--text-primary);
+}
+
+.selftest-trigger:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.selftest-result:not(:empty) {
+    margin-top: 1rem;
+}
+
+.selftest-summary {
+    padding: 0.7rem 0.9rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+
+.selftest-summary-ok {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.45);
+    color: #6ee7b7;
+}
+
+.selftest-summary-bad {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #fca5a5;
+}
+
+.selftest-meta {
+    margin-top: 0.6rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    word-break: break-all;
+}
+
+.selftest-list {
+    list-style: none;
+    margin: 0.8rem 0 0;
+    padding: 0;
+}
+
+.selftest-item {
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    background: rgba(148, 163, 184, 0.08);
+    margin-bottom: 0.5rem;
+}
+
+.selftest-item-bad {
+    background: rgba(239, 68, 68, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.35);
+}
+
+.selftest-flag {
+    flex: 0 0 auto;
+}
+
+.selftest-body {
+    min-width: 0;
+}
+
+.selftest-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.selftest-detail {
+    margin-top: 0.2rem;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+
+.selftest-report {
+    width: 100%;
+    margin-top: 0.8rem;
+    padding: 0.7rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: rgba(2, 6, 23, 0.6);
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    line-height: 1.55;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+.selftest-actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 0.6rem;
+}
+
+.selftest-btn {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--primary);
+    background: var(--primary);
+    color: #fff;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.selftest-btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border-color: var(--border-color);
+}
