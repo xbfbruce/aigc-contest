@@ -1,6 +1,10 @@
 // 管理员登录
 let currentAdmin = null;
 
+// 出厂默认管理员密码 admin123 的 SHA-256 值
+// 用于判断本机保存的账号是否还是「未被修改过的出厂默认值」
+const FACTORY_ADMIN_PASSWORD_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+
 document.getElementById('adminLoginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
 
@@ -80,6 +84,7 @@ function switchTab(tabName, event) {
         refreshAnalytics();
     } else if (tabName === 'admin') {
         document.getElementById('adminTab').classList.add('active');
+        updateAdminConfigSyncBanner();
     }
 }
 
@@ -183,6 +188,70 @@ async function uploadLocalSpecsToCloud() {
     }
 
     updateSpecsSyncBanner();
+}
+
+// 管理员账号的云端同步状态提示
+// 出厂默认值（admin / admin123）不自动上传，避免任意一台设备先打开后台
+// 就把默认账号写成全站标准，覆盖主办方真正在用的账号
+function isPristineAdminConfig(cfg) {
+    if (!cfg) return true;
+    return cfg.account === 'admin'
+        && (cfg.password === 'admin123' || cfg.passwordHash === FACTORY_ADMIN_PASSWORD_HASH);
+}
+
+function updateAdminConfigSyncBanner() {
+    const banner = document.getElementById('adminConfigSyncBanner');
+    if (!banner) return;
+
+    const state = storage.getCloudConfigState('adminConfig');
+
+    if (state === 'cloud') {
+        const cfg = storage.getCachedConfig('adminConfig') || {};
+        banner.style.display = 'block';
+        banner.className = 'sync-banner';
+        banner.innerHTML = `✅ 管理员账号已保存在云端（当前账号：${escapeHtml(cfg.account || 'admin')}），`
+            + '任意设备都可以用它登录后台。云端只保存密码的 SHA-256 哈希，不保存明文。';
+        return;
+    }
+
+    banner.style.display = 'block';
+
+    if (state === 'missing') {
+        banner.className = 'sync-banner sync-banner-warn';
+        banner.innerHTML = '⚠️ 云端还没有保存管理员账号，目前只有本设备能登录后台。<br>'
+            + '如果你在下方修改过账号或密码，保存后会自动上传；'
+            + '如果一直用的是出厂默认账号，可以点这里把它设为全站标准：'
+            + '<button class="btn-primary btn-sm" style="margin-left:0.75rem;" '
+            + 'onclick="uploadLocalAdminConfigToCloud()">上传本机管理员账号</button>';
+        return;
+    }
+
+    banner.className = 'sync-banner sync-banner-error';
+    banner.innerHTML = '⚠️ 无法读取云端管理员账号配置。<br>'
+        + '请先在 Supabase SQL Editor 执行 migration_cloud_accounts_and_config.sql，然后刷新页面。';
+}
+
+// 把本机管理员账号上传为全站标准
+async function uploadLocalAdminConfigToCloud() {
+    const cfg = storage.getCachedConfig('adminConfig');
+    if (!cfg || !cfg.account) {
+        alert('本机没有可上传的管理员账号，请先在下方填写并保存。');
+        return;
+    }
+
+    if (!confirm(`将把本机管理员账号「${cfg.account}」设为全站管理员？\n\n上传后所有设备都用这个账号登录后台，云端只保存密码哈希。`)) {
+        return;
+    }
+
+    const result = await storage.saveConfig('adminConfig', cfg);
+
+    if (result.syncedToCloud) {
+        alert('✅ 已上传到云端！其他设备现在可以用这个账号登录后台。');
+    } else {
+        alert(`❌ 上传失败：${result.cloudError || '未知原因'}`);
+    }
+
+    updateAdminConfigSyncBanner();
 }
 
 // 切换类别显示
@@ -703,6 +772,7 @@ document.getElementById('adminSettingsForm').addEventListener('submit', async fu
     } else {
         alert(`⚠️ 设置只保存在当前设备！\n\n原因：${result.cloudError || '云端写入失败'}\n\n其他设备仍需使用原来的账号密码。`);
     }
+    updateAdminConfigSyncBanner();
     logout();
 });
 
@@ -1102,9 +1172,19 @@ window.addEventListener('load', async () => {
 
     // 3) 把本机已有、云端还缺失的配置补传到云端
     //    投稿规格影响全站的上传校验规则，不自动上传，
-    //    改由管理员在「作品规格配置」页确认后手动保存
+    //    改由管理员在「作品规格配置」页确认后手动保存。
+    //    管理员账号同理：只有本机确实改过（不是出厂默认 admin/admin123）才自动上传，
+    //    否则任意一台设备先打开后台就会把默认账号写成全站标准，覆盖主办方真正在用的账号。
     try {
-        const syncResult = await storage.syncLocalConfigToCloud(['adminConfig', 'scoringItems']);
+        const keysToSync = ['scoringItems'];
+        const localAdmin = storage.getCachedConfig('adminConfig');
+        if (!isPristineAdminConfig(localAdmin)) {
+            keysToSync.push('adminConfig');
+        } else if (storage.getCloudConfigState('adminConfig') !== 'cloud') {
+            console.log('ℹ️ 本机管理员账号仍是出厂默认值，未自动上传云端；可在「管理员账号设置」页手动上传');
+        }
+
+        const syncResult = await storage.syncLocalConfigToCloud(keysToSync);
         if (syncResult.cloudAvailable && syncResult.synced > 0) {
             console.log(`✅ 已将 ${syncResult.synced} 项本机配置上传到云端`);
         } else if (!syncResult.cloudAvailable) {
@@ -1115,6 +1195,7 @@ window.addEventListener('load', async () => {
     }
 
     updateSpecsSyncBanner();
+    updateAdminConfigSyncBanner();
     
     // 评委账号统一存储在云端 judges 表（跨设备共享），
     // 不再写入任何默认演示账号，避免各设备出现「仅本机」的幽灵账号。
