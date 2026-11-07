@@ -414,15 +414,20 @@ async function saveScore() {
             if (queryError) throw queryError;
             
             if (existingScores && existingScores.length > 0) {
-                const { error: updateError } = await storage.supabase
+                const { data: updatedRows, error: updateError } = await storage.supabase
                     .from('scores')
                     .update({ 
                         score: currentScore,
                         is_submitted: false
                     })
-                    .eq('id', existingScores[0].id);
+                    .eq('id', existingScores[0].id)
+                    .select();
                 
                 if (updateError) throw updateError;
+                // 更新 0 行 = 该评分已提交锁定（RLS 的 USING 条件过滤掉了它）
+                if (!updatedRows || updatedRows.length === 0) {
+                    throw new Error('该作品的评分已提交并锁定，不能再暂存修改');
+                }
             } else {
                 const { error: insertError } = await storage.supabase
                     .from('scores')
@@ -493,15 +498,20 @@ async function submitScore() {
             if (queryError) throw queryError;
             
             if (existingScores && existingScores.length > 0) {
-                const { error: updateError } = await storage.supabase
+                const { data: updatedRows, error: updateError } = await storage.supabase
                     .from('scores')
                     .update({ 
                         score: currentScore,
                         is_submitted: true
                     })
-                    .eq('id', existingScores[0].id);
+                    .eq('id', existingScores[0].id)
+                    .select();
                 
                 if (updateError) throw updateError;
+                // 更新 0 行 = 该评分已提交锁定（RLS 的 USING 条件过滤掉了它）
+                if (!updatedRows || updatedRows.length === 0) {
+                    throw new Error('该作品的评分已提交并锁定，不能重复提交');
+                }
             } else {
                 const { error: insertError } = await storage.supabase
                     .from('scores')

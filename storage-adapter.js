@@ -6,7 +6,7 @@
  */
 
 // 页面代码版本：连接自检会显示它，用于判断某台设备是否还在用浏览器旧缓存
-const APP_VERSION = '20261106b';
+const APP_VERSION = '20261107a';
 
 class StorageAdapter {
     constructor() {
